@@ -1,6 +1,7 @@
 package babushka.entity;
 
 import babushka.ModSounds;
+import java.util.EnumSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
@@ -10,7 +11,7 @@ import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
-import net.minecraft.world.entity.ai.goal.MoveTowardsRestrictionGoal;
+import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.goal.OpenDoorGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
@@ -72,7 +73,7 @@ public class BabushkaEntity extends PathfinderMob {
         goalSelector.addGoal(2, new StandInLightGoal(this));
         goalSelector.addGoal(3, new SeekLightGoal(this));
         goalSelector.addGoal(4, new OpenDoorGoal(this, true));
-        goalSelector.addGoal(5, new MoveTowardsRestrictionGoal(this, 0.6));
+        goalSelector.addGoal(5, new GoHomeGoal());
         goalSelector.addGoal(6, new WaterAvoidingRandomStrollGoal(this, 0.6));
         goalSelector.addGoal(7, new LookAtPlayerGoal(this, Player.class, 8.0F));
         goalSelector.addGoal(8, new RandomLookAroundGoal(this));
@@ -175,13 +176,11 @@ public class BabushkaEntity extends PathfinderMob {
 
     private void setHome(BlockPos pos) {
         homeBed = pos;
-        restrictTo(pos, HOME_RADIUS);
     }
 
     private void validateOrFindHome(ServerLevel level) {
         if (homeBed != null && !isBed(level, homeBed)) {
             homeBed = null;
-            clearRestriction();
         }
         if (homeBed == null) {
             BlockPos found = findBed(level);
@@ -223,6 +222,29 @@ public class BabushkaEntity extends PathfinderMob {
             }
         }
         return best;
+    }
+
+    /** Если ушла от дома дальше HOME_RADIUS/2 — возвращается к своей кровати. */
+    private class GoHomeGoal extends Goal {
+        GoHomeGoal() {
+            setFlags(EnumSet.of(Flag.MOVE));
+        }
+
+        @Override
+        public boolean canUse() {
+            return homeBed != null && !isSleeping()
+                && blockPosition().distSqr(homeBed) > (HOME_RADIUS / 2.0) * (HOME_RADIUS / 2.0);
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            return canUse() && !getNavigation().isDone();
+        }
+
+        @Override
+        public void start() {
+            getNavigation().moveTo(homeBed.getX() + 0.5, homeBed.getY(), homeBed.getZ() + 0.5, 0.6);
+        }
     }
 
     // ---------------------------------------------------------------- поведение жителя
