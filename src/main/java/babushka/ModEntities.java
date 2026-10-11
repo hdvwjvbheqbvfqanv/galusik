@@ -1,0 +1,40 @@
+package babushka;
+
+import babushka.entity.BabushkaEntity;
+import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.MobCategory;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.SpawnEggItem;
+
+public final class ModEntities {
+    public static final ResourceKey<EntityType<?>> BABUSHKA_KEY =
+        ResourceKey.create(Registries.ENTITY_TYPE, BabushkaMod.id("babushka"));
+
+    public static final EntityType<BabushkaEntity> BABUSHKA = Registry.register(
+        BuiltInRegistries.ENTITY_TYPE,
+        BABUSHKA_KEY,
+        EntityType.Builder.of(BabushkaEntity::new, MobCategory.MISC)
+            .sized(0.6F, 1.95F)
+            .eyeHeight(1.62F)
+            .clientTrackingRange(10)
+            .build(BABUSHKA_KEY));
+
+    public static Item SPAWN_EGG;
+
+    private ModEntities() {}
+
+    public static void register() {
+        FabricDefaultAttributeRegistry.register(BABUSHKA, BabushkaEntity.createAttributes());
+
+        ResourceKey<Item> eggKey = ResourceKey.create(Registries.ITEM, BabushkaMod.id("babushka_spawn_egg"));
+        SPAWN_EGG = Registry.register(
+            BuiltInRegistries.ITEM,
+            eggKey,
+            new SpawnEggItem(new Item.Properties().setId(eggKey).spawnEgg(BABUSHKA)));
+    }
+}

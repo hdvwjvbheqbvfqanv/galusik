@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "babushka",
+  "version": "${version}",
+  "name": "Бабушка",
+  "description": "Добавляет одного персонажа — бабушку в красном платье. Живёт как житель, но не торгует; в темноте ищет свет и ругается.",
+  "authors": ["you"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["babushka.BabushkaMod"],
+    "client": ["babushka.client.BabushkaClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.1",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "line.vy_vzroslye_deti": {
+    "sounds": [
+      {
+        "name": "babushka:line/vy_vzroslye_deti",
+        "stream": false
+      }
+    ],
+    "subtitle": "subtitles.babushka.speech"
+  },
+  "line.vy_zachem_mne_otklyuchaete_svet": {
+    "sounds": [
+      {
+        "name": "babushka:line/vy_zachem_mne_otklyuchaete_svet",
+        "stream": false
+      }
+    ],
+    "subtitle": "subtitles.babushka.speech"
+  },
+  "line.vyzovem_politsiyu_zlykh_dukhov_perelovim": {
+    "sounds": [
+      {
+        "name": "babushka:line/vyzovem_politsiyu_zlykh_dukhov_perelovim",
+        "stream": false
+      }
+    ],
+    "subtitle": "subtitles.babushka.speech"
+  },
+  "line.zachem_vy_khuliganite": {
+    "sounds": [
+      {
+        "name": "babushka:line/zachem_vy_khuliganite",
+        "stream": false
+      }
+    ],
+    "subtitle": "subtitles.babushka.speech"
+  },
+  "line.ne_vyklyuchayte": {
+    "sounds": [
+      {
+        "name": "babushka:line/ne_vyklyuchayte",
+        "stream": false
+      }
+    ],
+    "subtitle": "subtitles.babushka.speech"
+  },
+  "line.ne_khuliganyte": {
+    "sounds": [
+      {
+        "name": "babushka:line/ne_khuliganyte",
+        "stream": false
+      }
+    ],
+    "subtitle": "subtitles.babushka.speech"
+  },
+  "line.ya_vam_shchas_politsiyu_vyzovu": {
+    "sounds": [
+      {
+        "name": "babushka:line/ya_vam_shchas_politsiyu_vyzovu",
+        "stream": false
+      }
+    ],
+    "subtitle": "subtitles.babushka.speech"
+  },
+  "line.ya_shchas_tvoyu_mat_vyzovu": {
+    "sounds": [
+      {
+        "name": "babushka:line/ya_shchas_tvoyu_mat_vyzovu",
+        "stream": false
+      }
+    ],
+    "subtitle": "subtitles.babushka.speech"
+  }
+}
