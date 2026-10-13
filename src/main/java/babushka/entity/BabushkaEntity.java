@@ -43,6 +43,8 @@ public class BabushkaEntity extends PathfinderMob {
     /** На каком расстоянии замечает игрока во время прогулки. */
     public static final double SEE_PLAYER_RANGE = 24.0;
     public static final int HOME_RADIUS = 32;
+    /** Радиус поиска источника света. */
+public static final int SEARCH_RADIUS = 16;
 
     /** Этапы "света нет": выйти из дома -> гулять 30 с (или гнаться за игроком) -> вернуться -> включить свет. */
     public enum Phase { NONE, LEAVING, WANDER, HUNT, RETURNING, RESTORING }
