@@ -2,6 +2,8 @@ package babushka.entity;
 
 import babushka.ModSounds;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.Map;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
@@ -34,22 +36,31 @@ public class BabushkaEntity extends PathfinderMob {
     // ---- Настройки (меняйте здесь) ----
     /** Пауза между репликами, отсчитывается ПОСЛЕ окончания реплики: 40 тиков = 2 секунды. */
     public static final int SOUND_INTERVAL_TICKS = 40;
-    /** Сколько стоит на месте после того, как нашла свет: 1200 тиков = 60 секунд. */
-    public static final int HOLD_TICKS = 1200;
-    /** Уровень света, ниже которого считается "темно" (0..15). */
+    /** Сколько гуляет по округе после того, как погас свет: 600 тиков = 30 секунд. */
+    public static final int WANDER_TICKS = 600;
+    /** Уровень блочного света, начиная с которого дом считается освещённым (0..15). */
     public static final int LIGHT_OK = 8;
-    /** Говорить ли во сне (в тёмной спальне). */
-    public static final boolean TALK_WHILE_SLEEPING = false;
-    /** Радиус поиска света и кровати. */
-    public static final int SEARCH_RADIUS = 20;
+    /** На каком расстоянии замечает игрока во время прогулки. */
+    public static final double SEE_PLAYER_RANGE = 24.0;
     public static final int HOME_RADIUS = 32;
 
+    /** Этапы "света нет": выйти из дома -> гулять 30 с (или гнаться за игроком) -> вернуться -> включить свет. */
+    public enum Phase { NONE, LEAVING, WANDER, HUNT, RETURNING, RESTORING }
+
     private BlockPos homeBed;
-    private int holdTicks;
     private int soundTimer;
-    private boolean wasDark;
     private int homeSearchCooldown;
     private int lastLine = -1;
+
+    // состояние "света нет" (доступно RoutineGoal из этого же пакета)
+    Phase phase = Phase.NONE;
+    int phaseTimer;
+    BlockPos exitPos;
+    House house = new House();
+    boolean wasLit;
+    private int houseRefresh;
+    private int sourceScanCooldown;
+    Map<Long, Boolean> knownSources = new HashMap<>();
 
     public BabushkaEntity(EntityType<? extends BabushkaEntity> type, Level level) {
         super(type, level);
@@ -63,15 +74,16 @@ public class BabushkaEntity extends PathfinderMob {
     public static AttributeSupplier.Builder createAttributes() {
         return PathfinderMob.createMobAttributes()
             .add(Attributes.MAX_HEALTH, 20.0)
-            .add(Attributes.MOVEMENT_SPEED, 0.5);
+            .add(Attributes.MOVEMENT_SPEED, 0.3)
+            .add(Attributes.FOLLOW_RANGE, 40.0)
+            .add(Attributes.ATTACK_DAMAGE, 99999.0);
     }
 
     @Override
     protected void registerGoals() {
         goalSelector.addGoal(0, new FloatGoal(this));
-        goalSelector.addGoal(1, new SleepInBedGoal(this));
-        goalSelector.addGoal(2, new StandInLightGoal(this));
-        goalSelector.addGoal(3, new SeekLightGoal(this));
+        goalSelector.addGoal(1, new RoutineGoal(this));
+        goalSelector.addGoal(2, new SleepInBedGoal(this));
         goalSelector.addGoal(4, new OpenDoorGoal(this, true));
         goalSelector.addGoal(5, new GoHomeGoal());
         goalSelector.addGoal(6, new WaterAvoidingRandomStrollGoal(this, 0.6));
@@ -79,23 +91,34 @@ public class BabushkaEntity extends PathfinderMob {
         goalSelector.addGoal(8, new RandomLookAroundGoal(this));
     }
 
-    // ---------------------------------------------------------------- освещение / время
-
-    public boolean isDarkHere() {
-        return level().getMaxLocalRawBrightness(blockPosition()) < LIGHT_OK;
-    }
-
-    public boolean isLightEnoughAt(BlockPos pos) {
-        return level().getMaxLocalRawBrightness(pos) >= LIGHT_OK;
-    }
+    // ---------------------------------------------------------------- время
 
     /** Ночь (или гроза) — время спать. Единственное место, зависящее от API времени. */
     public boolean isNightTime() {
         return level().isDarkOutside();
     }
 
+    public boolean isRoutineActive() {
+        return phase != Phase.NONE;
+    }
+
+    /** Бабушка сейчас в своём доме? */
+    boolean inHouse() {
+        BlockPos p = blockPosition();
+        return house.contains(p) || house.contains(p.above());
+    }
+
+    // Оставлено для совместимости со старыми файлами SeekLightGoal / StandInLightGoal (их можно удалить).
     public int getHoldTicks() {
-        return holdTicks;
+        return 0;
+    }
+
+    public boolean isDarkHere() {
+        return false;
+    }
+
+    public boolean isLightEnoughAt(BlockPos pos) {
+        return true;
     }
 
     // ---------------------------------------------------------------- тик
@@ -113,34 +136,68 @@ public class BabushkaEntity extends PathfinderMob {
             homeSearchCooldown = homeBed == null ? 200 : 100;
             validateOrFindHome(level);
         }
+        if (homeBed != null && --houseRefresh <= 0) {
+            houseRefresh = 20;
+            refreshHouse(level);
+        }
 
         if (isSleeping()) {
-            holdTicks = 0;
-            wasDark = false;
-            if (TALK_WHILE_SLEEPING && isDarkHere()) {
-                speakTick();
-            } else {
-                soundTimer = 0;
+            // Во сне ИИ-цели не тикают (см. isImmobile), поэтому будим здесь: утром — вставать.
+            if (!isNightTime()) {
+                stopSleeping();
             }
+            soundTimer = 0;
             return;
         }
 
-        boolean dark = isDarkHere();
-        if (dark) {
-            holdTicks = 0;
+        // Фразы — только пока в доме "нет света" (выход, прогулка, возвращение, включение света)
+        if (phase != Phase.NONE) {
             speakTick();
         } else {
-            if (wasDark) {
-                holdTicks = HOLD_TICKS; // только что нашла свет — стоим минуту
-            }
-            if (holdTicks > 0) {
-                holdTicks--;
-                speakTick();
-            } else {
-                soundTimer = 0;
-            }
+            soundTimer = 0;
         }
-        wasDark = dark;
+    }
+
+    /** Пересчитывает дом и следит за светом: был свет -> погас = запускаем "свет погас". */
+    private void refreshHouse(ServerLevel level) {
+        house = House.compute(level, homeBed);
+        if (house.isEmpty()) {
+            return;
+        }
+        if (phase != Phase.NONE) {
+            return;
+        }
+        boolean lit = house.isLit(level, LIGHT_OK);
+        if (lit) {
+            wasLit = true;
+            if (--sourceScanCooldown <= 0 || knownSources.isEmpty()) {
+                sourceScanCooldown = 5;
+                knownSources = house.scanSources(level, LIGHT_OK);
+            }
+        } else if (wasLit) {
+            wasLit = false;
+            startLightsOut(level);
+        }
+    }
+
+    private void startLightsOut(ServerLevel level) {
+        if (isSleeping()) {
+            stopSleeping();
+        }
+        getNavigation().stop();
+        soundTimer = 0;
+        if (inHouse()) {
+            exitPos = house.findExit(level, blockPosition());
+        } else {
+            exitPos = null;
+        }
+        if (exitPos != null) {
+            phase = Phase.LEAVING;
+            phaseTimer = 300;
+        } else {
+            phase = Phase.WANDER;
+            phaseTimer = WANDER_TICKS;
+        }
     }
 
     private void speakTick() {
@@ -181,6 +238,8 @@ public class BabushkaEntity extends PathfinderMob {
     private void validateOrFindHome(ServerLevel level) {
         if (homeBed != null && !isBed(level, homeBed)) {
             homeBed = null;
+            house = new House();
+            phase = Phase.NONE;
         }
         if (homeBed == null) {
             BlockPos found = findBed(level);

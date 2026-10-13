@@ -19,8 +19,8 @@ public final class ModEntities {
         BuiltInRegistries.ENTITY_TYPE,
         BABUSHKA_KEY,
         EntityType.Builder.of(BabushkaEntity::new, MobCategory.MISC)
-            .sized(0.6F, 1.95F)
-            .eyeHeight(1.62F)
+            .sized(0.55F, 1.55F)
+            .eyeHeight(1.4F)
             .clientTrackingRange(10)
             .build(BABUSHKA_KEY));
 

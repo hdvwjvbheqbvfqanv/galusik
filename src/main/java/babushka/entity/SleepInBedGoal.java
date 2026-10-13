@@ -38,6 +38,7 @@ public class SleepInBedGoal extends Goal {
     @Override
     public boolean canUse() {
         return mob.level().getGameTime() >= nextTry
+            && !mob.isRoutineActive()
             && mob.isNightTime()
             && !recentlyHurt()
             && bedUsable();
@@ -45,7 +46,7 @@ public class SleepInBedGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
-        return mob.isNightTime() && !recentlyHurt() && bedUsable() && giveUpTicks < 600;
+        return !mob.isRoutineActive() && mob.isNightTime() && !recentlyHurt() && bedUsable() && giveUpTicks < 600;
     }
 
     @Override
