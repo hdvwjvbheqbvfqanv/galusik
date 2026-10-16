@@ -35,5 +35,4 @@
 ## Сборка
 Залейте проект в GitHub — `.github/workflows/build.yml` соберёт jar (Actions → Artifacts), либо `build.bat`/`build.sh` (JDK 25 + Gradle 9.3+).
 
-## Модели
-Текстуры 2048×2048. Лицо бабушки — ваше фото (`tools/face_source.png`, голова вырезана без торса). `tools/make_models.py` рисует обе текстуры и **генерирует** `client/BabushkaModel.java` и `client/PoliceModel.java` (нужны Python, Pillow, numpy): `python3 tools/make_models.py`.
+
