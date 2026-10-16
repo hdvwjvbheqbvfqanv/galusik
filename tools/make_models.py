@@ -562,7 +562,7 @@ def java(model, pos):
                 "net.minecraft.client.model.geom.builders.LayerDefinition",
                 "net.minecraft.client.model.geom.builders.MeshDefinition",
                 "net.minecraft.client.model.geom.builders.PartDefinition",
-                "net.minecraft.client.model.geom.builders.PartPose",
+                "net.minecraft.client.model.geom.PartPose",
                 "net.minecraft.util.Mth"):
         L.append("import %s;" % imp)
     state_import = "net.minecraft.client.renderer.entity.state.LivingEntityRenderState"

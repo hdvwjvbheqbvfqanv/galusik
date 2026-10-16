@@ -49,6 +49,8 @@ public class BabushkaEntity extends PathfinderMob {
     /** На каком расстоянии замечает игрока во время прогулки. */
     public static final double SEE_PLAYER_RANGE = 24.0;
     public static final int HOME_RADIUS = 32;
+    /** Нужен только старым файлам SeekLightGoal/StandInLightGoal (их можно удалить из репозитория). */
+    public static final int SEARCH_RADIUS = 20;
     /** Урон по игроку (источник "магия" — не снимает прочность брони). */
     public static final float ATTACK_DAMAGE = 99999.0F;
     /** Шанс вызвать отряд полиции, когда сработал сценарий "свет погас". */
