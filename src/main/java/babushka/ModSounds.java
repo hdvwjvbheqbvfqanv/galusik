@@ -34,6 +34,10 @@ public final class ModSounds {
 
     public static final List<SoundEvent> LINES = new ArrayList<>();
 
+    /** Фраза "Ха-ха, артисты" — когда перед бабушкой игрок с головой моба. */
+    public static SoundEvent HAHA_ARTISTS;
+    public static final int HAHA_TICKS = 40;   // ~1.6 с
+
     private ModSounds() {}
 
     public static void register() {
@@ -41,5 +45,7 @@ public final class ModSounds {
             Identifier id = BabushkaMod.id("line." + name);
             LINES.add(Registry.register(BuiltInRegistries.SOUND_EVENT, id, SoundEvent.createVariableRangeEvent(id)));
         }
+        Identifier haha = BabushkaMod.id("haha_artisty");
+        HAHA_ARTISTS = Registry.register(BuiltInRegistries.SOUND_EVENT, haha, SoundEvent.createVariableRangeEvent(haha));
     }
 }

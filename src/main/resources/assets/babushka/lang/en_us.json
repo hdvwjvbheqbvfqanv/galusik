@@ -1,5 +1,6 @@
 {
   "entity.babushka.babushka": "Babushka",
   "item.babushka.babushka_spawn_egg": "Babushka Spawn Egg",
-  "subtitles.babushka.speech": "Babushka grumbles"
+  "subtitles.babushka.speech": "Babushka grumbles",
+  "entity.babushka.police": "Policeman"
 }

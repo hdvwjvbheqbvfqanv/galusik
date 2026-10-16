@@ -5,9 +5,12 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -19,12 +22,15 @@ import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
 import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Бабушка: живёт как житель (ходит, спит ночью в своей кровати, открывает двери),
@@ -43,8 +49,14 @@ public class BabushkaEntity extends PathfinderMob {
     /** На каком расстоянии замечает игрока во время прогулки. */
     public static final double SEE_PLAYER_RANGE = 24.0;
     public static final int HOME_RADIUS = 32;
-    /** Радиус поиска источника света. */
-public static final int SEARCH_RADIUS = 16;
+    /** Урон по игроку (источник "магия" — не снимает прочность брони). */
+    public static final float ATTACK_DAMAGE = 99999.0F;
+    /** Шанс вызвать отряд полиции, когда сработал сценарий "свет погас". */
+    public static final float POLICE_CHANCE = 0.30F;
+    /** Радиус, в котором она замечает игрока в голове моба. */
+    public static final double MOB_HEAD_RANGE = 8.0;
+    /** Подсказки в чате ближайшим игрокам о том, что она делает (для проверки). Поставьте false, чтобы выключить. */
+    public static final boolean DEBUG_CHAT = true;
 
     /** Этапы "света нет": выйти из дома -> гулять 30 с (или гнаться за игроком) -> вернуться -> включить свет. */
     public enum Phase { NONE, LEAVING, WANDER, HUNT, RETURNING, RESTORING }
@@ -53,6 +65,7 @@ public static final int SEARCH_RADIUS = 16;
     private int soundTimer;
     private int homeSearchCooldown;
     private int lastLine = -1;
+    private int hahaCooldown;
 
     // состояние "света нет" (доступно RoutineGoal из этого же пакета)
     Phase phase = Phase.NONE;
@@ -123,6 +136,47 @@ public static final int SEARCH_RADIUS = 16;
         return true;
     }
 
+    // ---------------------------------------------------------------- вспомогательное
+
+    /** Короткое сообщение в чат игрокам поблизости (если DEBUG_CHAT). */
+    void debug(String text) {
+        if (!DEBUG_CHAT || !(level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        for (ServerPlayer p : serverLevel.players()) {
+            if (p.distanceToSqr(this) < 64.0 * 64.0) {
+                p.sendSystemMessage(Component.literal("[Бабушка] " + text));
+            }
+        }
+    }
+
+    private static boolean isMobHead(ItemStack stack) {
+        return stack.is(Items.ZOMBIE_HEAD) || stack.is(Items.SKELETON_SKULL)
+            || stack.is(Items.WITHER_SKELETON_SKULL) || stack.is(Items.CREEPER_HEAD)
+            || stack.is(Items.PIGLIN_HEAD) || stack.is(Items.DRAGON_HEAD);
+    }
+
+    /** Перед ней стоит игрок с головой моба на голове — "Ха-ха, артисты". */
+    private void checkMobHead(ServerLevel level) {
+        Vec3 look = getViewVector(1.0F);
+        for (Player p : level.getEntitiesOfClass(Player.class, getBoundingBox().inflate(MOB_HEAD_RANGE))) {
+            if (!p.isAlive() || p.isSpectator() || !isMobHead(p.getItemBySlot(EquipmentSlot.HEAD))) {
+                continue;
+            }
+            if (!hasLineOfSight(p)) {
+                continue;
+            }
+            Vec3 toPlayer = p.position().subtract(position()).normalize();
+            if (look.dot(toPlayer) < 0.3) {
+                continue; // не перед ней
+            }
+            getLookControl().setLookAt(p, 30.0F, 30.0F);
+            playSound(ModSounds.HAHA_ARTISTS, 1.0F, 1.0F);
+            hahaCooldown = ModSounds.HAHA_TICKS + 100;
+            return;
+        }
+    }
+
     // ---------------------------------------------------------------- тик
 
     @Override
@@ -141,6 +195,12 @@ public static final int SEARCH_RADIUS = 16;
         if (homeBed != null && --houseRefresh <= 0) {
             houseRefresh = 20;
             refreshHouse(level);
+        }
+
+        if (hahaCooldown > 0) {
+            hahaCooldown--;
+        } else if (!isSleeping() && tickCount % 10 == 0) {
+            checkMobHead(level);
         }
 
         if (isSleeping()) {
@@ -178,11 +238,19 @@ public static final int SEARCH_RADIUS = 16;
             }
         } else if (wasLit) {
             wasLit = false;
-            startLightsOut(level);
+            // реагирует, только если сама находится в доме
+            if (inHouse()) {
+                startLightsOut(level);
+            }
         }
     }
 
     private void startLightsOut(ServerLevel level) {
+        debug("В доме погас свет!");
+        if (random.nextFloat() < POLICE_CHANCE) {
+            debug("Вызываю полицию!");
+            PoliceSquads.spawn(level, this);
+        }
         if (isSleeping()) {
             stopSleeping();
         }

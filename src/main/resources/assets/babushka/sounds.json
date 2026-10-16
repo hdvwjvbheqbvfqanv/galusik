@@ -70,5 +70,14 @@
       }
     ],
     "subtitle": "subtitles.babushka.speech"
+  },
+  "haha_artisty": {
+    "sounds": [
+      {
+        "name": "babushka:line/haha_artisty",
+        "stream": false
+      }
+    ],
+    "subtitle": "subtitles.babushka.speech"
   }
 }

@@ -1,6 +1,7 @@
 package babushka;
 
 import babushka.entity.BabushkaEntity;
+import babushka.entity.PoliceEntity;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -24,12 +25,26 @@ public final class ModEntities {
             .clientTrackingRange(10)
             .build(BABUSHKA_KEY));
 
+    public static final ResourceKey<EntityType<?>> POLICE_KEY =
+        ResourceKey.create(Registries.ENTITY_TYPE, BabushkaMod.id("police"));
+
+    /** Полицейские появляются только из сценария бабушки (яйца призыва нет). */
+    public static final EntityType<PoliceEntity> POLICE = Registry.register(
+        BuiltInRegistries.ENTITY_TYPE,
+        POLICE_KEY,
+        EntityType.Builder.of(PoliceEntity::new, MobCategory.MISC)
+            .sized(0.6F, 1.85F)
+            .eyeHeight(1.65F)
+            .clientTrackingRange(10)
+            .build(POLICE_KEY));
+
     public static Item SPAWN_EGG;
 
     private ModEntities() {}
 
     public static void register() {
         FabricDefaultAttributeRegistry.register(BABUSHKA, BabushkaEntity.createAttributes());
+        FabricDefaultAttributeRegistry.register(POLICE, PoliceEntity.createAttributes());
 
         ResourceKey<Item> eggKey = ResourceKey.create(Registries.ITEM, BabushkaMod.id("babushka_spawn_egg"));
         SPAWN_EGG = Registry.register(

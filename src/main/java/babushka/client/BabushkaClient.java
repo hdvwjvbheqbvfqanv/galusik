@@ -8,5 +8,6 @@ public class BabushkaClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         EntityRendererRegistry.register(ModEntities.BABUSHKA, BabushkaRenderer::new);
+        EntityRendererRegistry.register(ModEntities.POLICE, PoliceRenderer::new);
     }
 }
