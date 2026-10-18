@@ -1,6 +1,7 @@
 package babushka.entity;
 
 import babushka.ModEntities;
+import babushka.ModSounds;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -9,7 +10,9 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EntitySelector;
 import net.minecraft.world.entity.player.Player;
@@ -98,6 +101,10 @@ public final class PoliceSquads {
         }
         if (!squad.members.isEmpty()) {
             SQUADS.add(squad);
+            // сирена от одного из полицейских; звук привязан к нему и едет вместе с ним (слышна за ~64 блока)
+            PoliceEntity siren = squad.members.get(0);
+            level.playSeededSound(null, siren, BuiltInRegistries.SOUND_EVENT.wrapAsHolder(ModSounds.POLICE_SIREN),
+                SoundSource.HOSTILE, 4.0F, 1.0F, r.nextLong());
         }
     }
 }

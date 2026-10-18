@@ -42,8 +42,8 @@ public class BabushkaEntity extends PathfinderMob {
     // ---- Настройки (меняйте здесь) ----
     /** Пауза между репликами, отсчитывается ПОСЛЕ окончания реплики: 40 тиков = 2 секунды. */
     public static final int SOUND_INTERVAL_TICKS = 40;
-    /** Сколько гуляет по округе после того, как погас свет: 600 тиков = 30 секунд. */
-    public static final int WANDER_TICKS = 600;
+    /** Сколько гуляет по округе после того, как включила свет: 200 тиков = 10 секунд. */
+    public static final int WANDER_TICKS = 200;
     /** Уровень блочного света, начиная с которого дом считается освещённым (0..15). */
     public static final int LIGHT_OK = 8;
     /** На каком расстоянии замечает игрока во время прогулки. */
@@ -55,14 +55,11 @@ public class BabushkaEntity extends PathfinderMob {
     public static final int POLICE_SPAWN_DISTANCE = 40;
     /** Урон по игроку (источник "магия" — не снимает прочность брони). */
     public static final float ATTACK_DAMAGE = 99999.0F;
-    /** Шанс вызвать отряд полиции, когда сработал сценарий "свет погас". */
-    public static final float POLICE_CHANCE = 0.30F;
+    /** Шанс вызвать отряд полиции, когда она включила свет. */
+    public static final float POLICE_CHANCE = 0.65F;
     /** Радиус, в котором она замечает игрока в голове моба. */
     public static final double MOB_HEAD_RANGE = 8.0;
-    /** Подсказки в чате ближайшим игрокам о том, что она делает (для проверки). Поставьте false, чтобы выключить. */
-    public static final boolean DEBUG_CHAT = true;
-
-    /** Этапы "света нет": выйти из дома -> гулять 30 с (или гнаться за игроком) -> вернуться -> включить свет. */
+    /** Этапы: включить свет (RESTORING) -> выйти из дома -> гулять 10 с (или гнаться за игроком) -> вернуться. */
     public enum Phase { NONE, LEAVING, WANDER, HUNT, RETURNING, RESTORING }
 
     private BlockPos homeBed;
@@ -77,7 +74,6 @@ public class BabushkaEntity extends PathfinderMob {
     BlockPos exitPos;
     House house = new House();
     private int houseRefresh;
-    private boolean warnedFallback;
     /** Горящие источники света дома (позиция -> переключаемая лампа?). Во время "света нет" хранит снимок до отключения. */
     Map<Long, Boolean> knownSources = new HashMap<>();
     /** Сколько источников горело до отключения — столько надо вернуть. */
@@ -148,18 +144,6 @@ public class BabushkaEntity extends PathfinderMob {
 
     // ---------------------------------------------------------------- вспомогательное
 
-    /** Короткое сообщение в чат игрокам поблизости (если DEBUG_CHAT). */
-    void debug(String text) {
-        if (!DEBUG_CHAT || !(level() instanceof ServerLevel serverLevel)) {
-            return;
-        }
-        for (ServerPlayer p : serverLevel.players()) {
-            if (p.distanceToSqr(this) < 64.0 * 64.0) {
-                p.sendSystemMessage(Component.literal("[Бабушка] " + text));
-            }
-        }
-    }
-
     private static boolean isMobHead(ItemStack stack) {
         return stack.is(Items.ZOMBIE_HEAD) || stack.is(Items.SKELETON_SKULL)
             || stack.is(Items.WITHER_SKELETON_SKULL) || stack.is(Items.CREEPER_HEAD)
@@ -178,7 +162,6 @@ public class BabushkaEntity extends PathfinderMob {
             }
             getLookControl().setLookAt(p, 30.0F, 30.0F);
             playSound(ModSounds.HAHA_ARTISTS, 1.0F, 1.0F);
-            debug("Ха-ха, артисты!");
             hahaCooldown = ModSounds.HAHA_TICKS + 100;
             return;
         }
@@ -235,10 +218,6 @@ public class BabushkaEntity extends PathfinderMob {
         house = House.compute(level, homeBed);
         if (house.isEmpty()) {
             house = House.fallback(level, homeBed);
-            if (!warnedFallback) {
-                warnedFallback = true;
-                debug("Комната не закрытая — считаю домом 6 блоков вокруг кровати.");
-            }
         }
         if (house.isEmpty() || phase != Phase.NONE) {
             return;
@@ -252,9 +231,7 @@ public class BabushkaEntity extends PathfinderMob {
             }
         }
         if (lost) {
-            boolean inside = inHouse();
-            debug(inside ? "В доме пропал свет!" : "Свет в доме пропал, но меня нет дома — не реагирую.");
-            if (inside) {
+            if (inHouse()) {
                 litBefore = knownSources.size();   // снимок "до" остаётся в knownSources
                 startLightsOut(level);
                 return;
@@ -263,12 +240,26 @@ public class BabushkaEntity extends PathfinderMob {
         knownSources = now;
     }
 
+    /** Свет пропал: она сразу идёт его включать (фразы начинаются сразу). */
     private void startLightsOut(ServerLevel level) {
         if (isSleeping()) {
             stopSleeping();
         }
         getNavigation().stop();
         soundTimer = 0;
+        exitPos = null;
+        phase = Phase.RESTORING;
+    }
+
+    /**
+     * Свет включён: с шансом 65% вызывает отряд полиции (появится в 40 блоках от игрока),
+     * затем выходит из дома и гуляет по округе 10 секунд.
+     */
+    void afterLightRestored(ServerLevel level) {
+        knownSources = house.scanSources(level, LIGHT_OK);
+        if (random.nextFloat() < POLICE_CHANCE) {
+            PoliceSquads.spawn(level, this);
+        }
         exitPos = house.findExit(level, blockPosition());
         if (exitPos != null) {
             phase = Phase.LEAVING;
@@ -276,14 +267,6 @@ public class BabushkaEntity extends PathfinderMob {
         } else {
             phase = Phase.WANDER;
             phaseTimer = WANDER_TICKS;
-        }
-    }
-
-    /** Свет снова горит: с шансом 30% вызывает отряд полиции (появится в 40 блоках от игрока). */
-    void onLightRestored(ServerLevel level) {
-        if (random.nextFloat() < POLICE_CHANCE) {
-            debug("Вызываю полицию!");
-            PoliceSquads.spawn(level, this);
         }
     }
 

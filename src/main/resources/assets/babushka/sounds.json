@@ -79,5 +79,15 @@
       }
     ],
     "subtitle": "subtitles.babushka.speech"
+  },
+  "police_siren": {
+    "sounds": [
+      {
+        "name": "babushka:line/police_siren",
+        "stream": false,
+        "attenuation_distance": 64
+      }
+    ],
+    "subtitle": "subtitles.babushka.siren"
   }
 }

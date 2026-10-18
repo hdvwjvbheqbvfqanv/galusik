@@ -36,6 +36,9 @@ public final class ModSounds {
 
     /** Фраза "Ха-ха, артисты" — когда перед бабушкой игрок с головой моба. */
     public static SoundEvent HAHA_ARTISTS;
+
+    /** Сирена: играет от одного из полицейских, когда отряд появляется. */
+    public static SoundEvent POLICE_SIREN;
     public static final int HAHA_TICKS = 40;   // ~1.6 с
 
     private ModSounds() {}
@@ -47,5 +50,7 @@ public final class ModSounds {
         }
         Identifier haha = BabushkaMod.id("haha_artisty");
         HAHA_ARTISTS = Registry.register(BuiltInRegistries.SOUND_EVENT, haha, SoundEvent.createVariableRangeEvent(haha));
+        Identifier siren = BabushkaMod.id("police_siren");
+        POLICE_SIREN = Registry.register(BuiltInRegistries.SOUND_EVENT, siren, SoundEvent.createVariableRangeEvent(siren));
     }
 }
