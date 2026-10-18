@@ -6,6 +6,7 @@ import java.util.UUID;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
 import net.minecraft.server.level.ServerLevel;
@@ -41,7 +42,7 @@ final class PoliceSquad {
 
     private State state = State.GATHER;
     private int timer;
-    private int gatherTimer = 2400;          // страховка: 2 минуты на дорогу
+    private int gatherTimer = 6000;          // страховка: 5 минут на дорогу (они могут быть далеко)
     private ServerPlayer target;
     private int noSight;
     private Vec3 freezePos;
@@ -189,12 +190,15 @@ final class PoliceSquad {
         freezePos = p.position();
 
         // надпись обычным шрифтом майнкрафта
+        // Подзаголовок вдвое мельче заголовка — длинная фраза целиком помещается на экране
         p.connection.send(new ClientboundSetTitlesAnimationPacket(10, 270, 20));
-        p.connection.send(new ClientboundSetTitleTextPacket(
+        p.connection.send(new ClientboundSetTitleTextPacket(Component.literal(" ")));
+        p.connection.send(new ClientboundSetSubtitleTextPacket(
             Component.literal(ARREST_TEXT).withStyle(ChatFormatting.RED)));
 
-        // 15 секунд не может двигаться
-        p.addEffect(new MobEffectInstance(MobEffects.SLOWNESS, ARREST_TICKS + 20, 255, false, false, false));
+        // 15 секунд не может двигаться. Замедление НЕ используем — оно даёт "приближение" экрана.
+        // Держим на месте возвратом позиции каждый тик, прыжок отключаем эффектом.
+        p.addEffect(new MobEffectInstance(MobEffects.JUMP_BOOST, ARREST_TICKS + 20, 128, false, false, false));
 
         if (dest == level) {
             int n = members.size();
@@ -222,7 +226,8 @@ final class PoliceSquad {
             return;
         }
         // держим на месте (на случай прыжков/эндер-жемчуга и т. п.)
-        if (target.position().distanceToSqr(freezePos) > 0.04) {
+        target.setSprinting(false);
+        if (target.position().distanceToSqr(freezePos) > 0.0004) {
             target.connection.teleport(freezePos.x, freezePos.y, freezePos.z, target.getYRot(), target.getXRot());
         }
         target.setDeltaMovement(Vec3.ZERO);
@@ -244,7 +249,7 @@ final class PoliceSquad {
 
     private void release() {
         if (target != null && state == State.ARREST) {
-            target.removeEffect(MobEffects.SLOWNESS);
+            target.removeEffect(MobEffects.JUMP_BOOST);
         }
         for (PoliceEntity m : members) {
             m.discard();

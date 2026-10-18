@@ -33,8 +33,8 @@ public final class ModEntities {
         BuiltInRegistries.ENTITY_TYPE,
         POLICE_KEY,
         EntityType.Builder.of(PoliceEntity::new, MobCategory.MISC)
-            .sized(0.6F, 1.85F)
-            .eyeHeight(1.65F)
+            .sized(0.6F, 1.8F)
+            .eyeHeight(1.62F)
             .clientTrackingRange(10)
             .build(POLICE_KEY));
 

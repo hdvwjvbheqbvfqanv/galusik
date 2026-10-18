@@ -32,6 +32,32 @@ public final class House {
         return cells.contains(pos.asLong());
     }
 
+    /** Клетка дома или соседняя с ней (стоит в проёме, на ковре, на кровати...). */
+    public boolean nearCell(BlockPos p) {
+        if (cells.isEmpty()) {
+            return false;
+        }
+        return contains(p) || contains(p.above()) || contains(p.below())
+            || contains(p.north()) || contains(p.south()) || contains(p.east()) || contains(p.west());
+    }
+
+    /** Запасной вариант, если закрытую комнату определить не удалось: всё свободное место в 6 блоках от кровати. */
+    public static House fallback(ServerLevel level, BlockPos bed) {
+        House house = new House();
+        BlockPos.MutableBlockPos c = new BlockPos.MutableBlockPos();
+        for (int dx = -6; dx <= 6; dx++) {
+            for (int dy = -2; dy <= 3; dy++) {
+                for (int dz = -6; dz <= 6; dz++) {
+                    c.set(bed.getX() + dx, bed.getY() + dy, bed.getZ() + dz);
+                    if (passable(level, c)) {
+                        house.cells.add(c.asLong());
+                    }
+                }
+            }
+        }
+        return house;
+    }
+
     private static boolean passable(ServerLevel level, BlockPos pos) {
         if (!level.hasChunkAt(pos)) {
             return false;
@@ -97,7 +123,7 @@ public final class House {
             for (Direction d : Direction.values()) {
                 scanOne(level, c.relative(d), threshold, found);
             }
-            if (found.size() > 64) {
+            if (found.size() > 256) {
                 break;
             }
         }

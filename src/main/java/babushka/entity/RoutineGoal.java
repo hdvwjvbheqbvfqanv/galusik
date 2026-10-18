@@ -19,12 +19,9 @@ import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.util.LandRandomPos;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.CopperBulbBlock;
 import net.minecraft.world.level.block.LeverBlock;
-import net.minecraft.world.level.block.RedstoneLampBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -50,8 +47,9 @@ public class RoutineGoal extends Goal {
     private BlockPos currentLeverStand;
     private int leverWalkTicks;
     private BlockPos toggledLever;          // рычаг, который только что дёрнула (ждём результата)
+    private int countBeforeToggle;          // сколько источников горело до переключения
     private BlockPos lampAnchor;            // где искать рычаги: у выключенной лампы
-    private Boolean lampEvidence;           // есть ли в доме лампы (значит, нужен рычаг, а не факел)
+    private boolean lampLost;               // среди пропавших источников есть переключаемая лампа
     private BlockPos currentTorchSpot;
     private final Set<Long> triedLevers = new HashSet<>();
 
@@ -83,7 +81,8 @@ public class RoutineGoal extends Goal {
         leverWalkTicks = 0;
         toggledLever = null;
         lampAnchor = null;
-        lampEvidence = null;
+        lampLost = false;
+        countBeforeToggle = 0;
         currentTorchSpot = null;
         triedLevers.clear();
     }
@@ -226,7 +225,9 @@ public class RoutineGoal extends Goal {
     private void tickReturning() {
         BlockPos bed = mob.getHomeBed();
         if (bed == null) {
-            finish(false);
+            if (mob.level() instanceof ServerLevel sl) {
+                finish(sl, false);
+            }
             return;
         }
         if (mob.inHouse()) {
@@ -249,36 +250,44 @@ public class RoutineGoal extends Goal {
 
     // ------------------------------------------------------------------ включить свет
 
+    /** Дистанция до рычага: ей нужно подойти вплотную — в пределах 1 блока по горизонтали. */
+    private static final double LEVER_REACH = 1.0;
+
     private void tickRestoring(ServerLevel level) {
         if (--restoreWait > 0) {
             return;
         }
         restoreWait = 10;
 
-        if (mob.house.isLit(level, BabushkaEntity.LIGHT_OK)) {
+        int now = mob.litCount(level);
+        if (now >= mob.litBefore) {
             if (toggledLever != null) {
                 mob.debug("Рычаг сработал — свет включён.");
             }
-            finish(true);
+            finish(level, true);
             return;
         }
 
-        // Дёрнула рычаг, подождала — света нет: возвращаем рычаг как был и пробуем следующий
+        // Дёрнула рычаг и подождала: свет добавился — оставляем; нет — возвращаем рычаг как был и берём другой
         if (toggledLever != null) {
-            toggleLever(level, toggledLever);
+            if (now > countBeforeToggle) {
+                mob.debug("Рычаг помог, но свет вернулся не весь.");
+            } else {
+                toggleLever(level, toggledLever);
+                mob.debug("Этот рычаг не помог, пробую другой.");
+            }
             triedLevers.add(toggledLever.asLong());
             toggledLever = null;
             leverAttempts++;
-            mob.debug("Этот рычаг не помог, пробую другой.");
         }
 
-        // Анализ источников света в доме
-        if (lampEvidence == null) {
-            analyseLamps(level);
+        // Анализ: что именно погасло? Лампа (переключается рычагом) или факел?
+        if (lampAnchor == null && !lampLost) {
+            analyseLost(level);
         }
 
-        // 1) Есть лампы -> в первую очередь ищем и дёргаем рычаг
-        if (lampEvidence && leverAttempts < 6) {
+        // 1) Погасла лампа -> в первую очередь рычаг
+        if (lampLost && leverAttempts < 6) {
             if (currentLever == null) {
                 currentLever = pickLever(level);
                 leverWalkTicks = 0;
@@ -289,13 +298,17 @@ public class RoutineGoal extends Goal {
                 }
                 mob.debug("Лампа не горит — иду к рычагу.");
             }
-            Vec3 leverCenter = Vec3.atCenterOf(currentLever);
-            if (mob.distanceToSqr(leverCenter) < 9.0) {
+            double dx = mob.getX() - (currentLever.getX() + 0.5);
+            double dz = mob.getZ() - (currentLever.getZ() + 0.5);
+            boolean close = Math.sqrt(dx * dx + dz * dz) <= LEVER_REACH + 0.15
+                && Math.abs(mob.getY() - currentLever.getY()) < 2.5;
+            if (close) {
+                countBeforeToggle = now;
                 toggleLever(level, currentLever);
                 toggledLever = currentLever;
                 currentLever = null;
                 restoreWait = 40;          // даём redstone сработать
-            } else if (++leverWalkTicks > 60) {
+            } else if (++leverWalkTicks > 150) {
                 triedLevers.add(currentLever.asLong());   // не может дойти — следующий рычаг
                 currentLever = null;
                 leverAttempts++;
@@ -306,17 +319,17 @@ public class RoutineGoal extends Goal {
             return;
         }
 
-        // 2) Ламп нет (или рычаги не помогли) -> ставим факел в доме
+        // 2) Погас факел (или рычаги не помогли) -> ставим факел в доме
         if (torchesPlaced >= 2) {
             mob.debug("Не получилось включить свет.");
-            finish(false);
+            finish(level, false);
             return;
         }
         if (currentTorchSpot == null) {
             currentTorchSpot = pickTorchSpot(level, goneFixedSources(level));
             if (currentTorchSpot == null) {
                 mob.debug("Некуда поставить факел.");
-                finish(false);
+                finish(level, false);
                 return;
             }
         }
@@ -334,46 +347,19 @@ public class RoutineGoal extends Goal {
         }
     }
 
-    /** Есть ли у дома переключаемые лампы (известные раньше или выключенные сейчас рядом с домом). */
-    private void analyseLamps(ServerLevel level) {
-        lampEvidence = false;
+    /** Среди пропавших источников ищем переключаемую лампу — рядом с ней будем искать рычаг. */
+    private void analyseLost(ServerLevel level) {
         for (Map.Entry<Long, Boolean> e : mob.knownSources.entrySet()) {
-            if (e.getValue()) {
-                lampEvidence = true;
-                lampAnchor = BlockPos.of(e.getKey());
-                break;
+            BlockPos p = BlockPos.of(e.getKey());
+            BlockState s = level.getBlockState(p);
+            boolean emitting = s.getLightEmission() >= BabushkaEntity.LIGHT_OK;
+            if (e.getValue() && !emitting) {      // была лампа и сейчас не горит
+                lampLost = true;
+                lampAnchor = p;
+                return;
             }
         }
-        if (lampEvidence) {
-            return;
-        }
-        // выключенные лампы, которые видны прямо сейчас (в доме и в стенах вокруг)
-        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
-        int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
-        for (long l : mob.house.cells) {
-            BlockPos c = BlockPos.of(l);
-            minX = Math.min(minX, c.getX()); maxX = Math.max(maxX, c.getX());
-            minY = Math.min(minY, c.getY()); maxY = Math.max(maxY, c.getY());
-            minZ = Math.min(minZ, c.getZ()); maxZ = Math.max(maxZ, c.getZ());
-        }
-        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
-        for (int x = minX - 3; x <= maxX + 3; x++) {
-            for (int y = minY - 3; y <= maxY + 3; y++) {
-                for (int z = minZ - 3; z <= maxZ + 3; z++) {
-                    p.set(x, y, z);
-                    if (!level.hasChunkAt(p)) {
-                        continue;
-                    }
-                    BlockState s = level.getBlockState(p);
-                    if (s.getBlock() instanceof RedstoneLampBlock || s.getBlock() instanceof CopperBulbBlock) {
-                        lampEvidence = true;
-                        lampAnchor = p.immutable();
-                        mob.debug("Вижу лампу — значит, свет включается рычагом.");
-                        return;
-                    }
-                }
-            }
-        }
+        lampAnchor = mob.getHomeBed();            // ламп среди пропавших нет — рычаг не нужен
     }
 
     /** Источники света, которые пропали совсем (факел сломали) — на их место ставим факел. */
@@ -388,9 +374,7 @@ public class RoutineGoal extends Goal {
         return gone;
     }
 
-    /**
-     * Ближайший к лампе рычаг, до которого можно дойти (даже за дверью — рычаги бывают в другой комнате).
-     */
+    /** Ближайший к лампе непроверенный рычаг (даже в другой комнате — рычаги бывают где угодно). */
     private BlockPos pickLever(ServerLevel level) {
         BlockPos anchor = lampAnchor != null ? lampAnchor : mob.getHomeBed();
         if (anchor == null) {
@@ -398,9 +382,9 @@ public class RoutineGoal extends Goal {
         }
         List<BlockPos> levers = new ArrayList<>();
         BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
-        for (int x = -14; x <= 14; x++) {
+        for (int x = -16; x <= 16; x++) {
             for (int y = -8; y <= 8; y++) {
-                for (int z = -14; z <= 14; z++) {
+                for (int z = -16; z <= 16; z++) {
                     p.set(anchor.getX() + x, anchor.getY() + y, anchor.getZ() + z);
                     if (!level.hasChunkAt(p) || triedLevers.contains(p.asLong())) {
                         continue;
@@ -412,42 +396,34 @@ public class RoutineGoal extends Goal {
             }
         }
         levers.sort(Comparator.comparingDouble(lp -> lp.distSqr(anchor)));
-        int tried = 0;
         for (BlockPos lever : levers) {
-            if (tried++ >= 10) {
-                break;
-            }
             BlockPos stand = findStandCell(level, lever);
-            if (stand == null) {
-                continue;
-            }
-            Path path = mob.getNavigation().createPath(stand, 0);
-            if (path != null && path.canReach()) {
+            if (stand != null) {
                 currentLeverStand = stand;
                 return lever;
             }
+            triedLevers.add(lever.asLong());
         }
         return null;
     }
 
-    /** Свободная клетка рядом с рычагом, где можно встать. */
+    /** Клетка вплотную к рычагу (сама клетка рычага или соседняя по горизонтали), где можно встать. */
     private BlockPos findStandCell(ServerLevel level, BlockPos lever) {
         BlockPos best = null;
         double bestD = Double.MAX_VALUE;
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    BlockPos c = lever.offset(dx, dy, dz);
-                    BlockState s = level.getBlockState(c);
-                    BlockState floor = level.getBlockState(c.below());
-                    if (s.getCollisionShape(level, c).isEmpty()
-                        && level.getBlockState(c.above()).getCollisionShape(level, c.above()).isEmpty()
-                        && floor.isFaceSturdy(level, c.below(), Direction.UP)) {
-                        double d = c.distSqr(mob.blockPosition());
-                        if (d < bestD) {
-                            bestD = d;
-                            best = c;
-                        }
+        int[][] offsets = {{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (int[] o : offsets) {
+            for (int dy = -2; dy <= 0; dy++) {
+                BlockPos c = lever.offset(o[0], dy, o[1]);
+                BlockState s = level.getBlockState(c);
+                BlockState floor = level.getBlockState(c.below());
+                if (s.getCollisionShape(level, c).isEmpty()
+                    && level.getBlockState(c.above()).getCollisionShape(level, c.above()).isEmpty()
+                    && floor.isFaceSturdy(level, c.below(), Direction.UP)) {
+                    double d = c.distSqr(mob.blockPosition());
+                    if (d < bestD) {
+                        bestD = d;
+                        best = c;
                     }
                 }
             }
@@ -495,9 +471,13 @@ public class RoutineGoal extends Goal {
         return best;
     }
 
-    private void finish(boolean lit) {
-        mob.wasLit = lit;           // если сдалась — не зацикливаемся, пока свет снова не появится
+    private void finish(ServerLevel level, boolean lit) {
+        // новый "эталон" света: чтобы не срабатывать повторно на то, что уже не починить
+        mob.knownSources = mob.house.scanSources(level, BabushkaEntity.LIGHT_OK);
         mob.phase = BabushkaEntity.Phase.NONE;
         mob.getNavigation().stop();
+        if (lit) {
+            mob.onLightRestored(level);   // свет включён -> с шансом 30% вызывает полицию
+        }
     }
 }

@@ -51,6 +51,8 @@ public class BabushkaEntity extends PathfinderMob {
     public static final int HOME_RADIUS = 32;
     /** Нужен только старым файлам SeekLightGoal/StandInLightGoal (их можно удалить из репозитория). */
     public static final int SEARCH_RADIUS = 20;
+    /** На каком расстоянии от игрока появляется отряд полиции. */
+    public static final int POLICE_SPAWN_DISTANCE = 40;
     /** Урон по игроку (источник "магия" — не снимает прочность брони). */
     public static final float ATTACK_DAMAGE = 99999.0F;
     /** Шанс вызвать отряд полиции, когда сработал сценарий "свет погас". */
@@ -74,10 +76,12 @@ public class BabushkaEntity extends PathfinderMob {
     int phaseTimer;
     BlockPos exitPos;
     House house = new House();
-    boolean wasLit;
     private int houseRefresh;
-    private int sourceScanCooldown;
+    private boolean warnedFallback;
+    /** Горящие источники света дома (позиция -> переключаемая лампа?). Во время "света нет" хранит снимок до отключения. */
     Map<Long, Boolean> knownSources = new HashMap<>();
+    /** Сколько источников горело до отключения — столько надо вернуть. */
+    int litBefore;
 
     public BabushkaEntity(EntityType<? extends BabushkaEntity> type, Level level) {
         super(type, level);
@@ -121,8 +125,12 @@ public class BabushkaEntity extends PathfinderMob {
 
     /** Бабушка сейчас в своём доме? */
     boolean inHouse() {
-        BlockPos p = blockPosition();
-        return house.contains(p) || house.contains(p.above());
+        return house.nearCell(blockPosition());
+    }
+
+    /** Сколько источников света сейчас горит в доме. */
+    int litCount(ServerLevel level) {
+        return house.scanSources(level, LIGHT_OK).size();
     }
 
     // Оставлено для совместимости со старыми файлами SeekLightGoal / StandInLightGoal (их можно удалить).
@@ -155,12 +163,12 @@ public class BabushkaEntity extends PathfinderMob {
     private static boolean isMobHead(ItemStack stack) {
         return stack.is(Items.ZOMBIE_HEAD) || stack.is(Items.SKELETON_SKULL)
             || stack.is(Items.WITHER_SKELETON_SKULL) || stack.is(Items.CREEPER_HEAD)
-            || stack.is(Items.PIGLIN_HEAD) || stack.is(Items.DRAGON_HEAD);
+            || stack.is(Items.PIGLIN_HEAD) || stack.is(Items.DRAGON_HEAD)
+            || stack.is(Items.CARVED_PUMPKIN) || stack.is(Items.PUMPKIN);
     }
 
-    /** Перед ней стоит игрок с головой моба на голове — "Ха-ха, артисты". */
+    /** Рядом (в поле зрения) игрок с головой моба или тыквой на голове — "Ха-ха, артисты". */
     private void checkMobHead(ServerLevel level) {
-        Vec3 look = getViewVector(1.0F);
         for (Player p : level.getEntitiesOfClass(Player.class, getBoundingBox().inflate(MOB_HEAD_RANGE))) {
             if (!p.isAlive() || p.isSpectator() || !isMobHead(p.getItemBySlot(EquipmentSlot.HEAD))) {
                 continue;
@@ -168,12 +176,9 @@ public class BabushkaEntity extends PathfinderMob {
             if (!hasLineOfSight(p)) {
                 continue;
             }
-            Vec3 toPlayer = p.position().subtract(position()).normalize();
-            if (look.dot(toPlayer) < 0.3) {
-                continue; // не перед ней
-            }
             getLookControl().setLookAt(p, 30.0F, 30.0F);
             playSound(ModSounds.HAHA_ARTISTS, 1.0F, 1.0F);
+            debug("Ха-ха, артисты!");
             hahaCooldown = ModSounds.HAHA_TICKS + 100;
             return;
         }
@@ -222,53 +227,63 @@ public class BabushkaEntity extends PathfinderMob {
         }
     }
 
-    /** Пересчитывает дом и следит за светом: был свет -> погас = запускаем "свет погас". */
+    /**
+     * Пересчитывает дом и следит за светом. Реагирует на пропажу ЛЮБОГО горевшего источника
+     * (лампу выключили, факел сломали), даже если в доме остался другой свет.
+     */
     private void refreshHouse(ServerLevel level) {
         house = House.compute(level, homeBed);
         if (house.isEmpty()) {
-            return;
-        }
-        if (phase != Phase.NONE) {
-            return;
-        }
-        boolean lit = house.isLit(level, LIGHT_OK);
-        if (lit) {
-            wasLit = true;
-            if (--sourceScanCooldown <= 0 || knownSources.isEmpty()) {
-                sourceScanCooldown = 5;
-                knownSources = house.scanSources(level, LIGHT_OK);
+            house = House.fallback(level, homeBed);
+            if (!warnedFallback) {
+                warnedFallback = true;
+                debug("Комната не закрытая — считаю домом 6 блоков вокруг кровати.");
             }
-        } else if (wasLit) {
-            wasLit = false;
-            // реагирует, только если сама находится в доме
-            if (inHouse()) {
+        }
+        if (house.isEmpty() || phase != Phase.NONE) {
+            return;
+        }
+        Map<Long, Boolean> now = house.scanSources(level, LIGHT_OK);
+        boolean lost = false;
+        for (Long key : knownSources.keySet()) {
+            if (!now.containsKey(key) && level.hasChunkAt(BlockPos.of(key))) {
+                lost = true;
+                break;
+            }
+        }
+        if (lost) {
+            boolean inside = inHouse();
+            debug(inside ? "В доме пропал свет!" : "Свет в доме пропал, но меня нет дома — не реагирую.");
+            if (inside) {
+                litBefore = knownSources.size();   // снимок "до" остаётся в knownSources
                 startLightsOut(level);
+                return;
             }
         }
+        knownSources = now;
     }
 
     private void startLightsOut(ServerLevel level) {
-        debug("В доме погас свет!");
-        if (random.nextFloat() < POLICE_CHANCE) {
-            debug("Вызываю полицию!");
-            PoliceSquads.spawn(level, this);
-        }
         if (isSleeping()) {
             stopSleeping();
         }
         getNavigation().stop();
         soundTimer = 0;
-        if (inHouse()) {
-            exitPos = house.findExit(level, blockPosition());
-        } else {
-            exitPos = null;
-        }
+        exitPos = house.findExit(level, blockPosition());
         if (exitPos != null) {
             phase = Phase.LEAVING;
             phaseTimer = 300;
         } else {
             phase = Phase.WANDER;
             phaseTimer = WANDER_TICKS;
+        }
+    }
+
+    /** Свет снова горит: с шансом 30% вызывает отряд полиции (появится в 40 блоках от игрока). */
+    void onLightRestored(ServerLevel level) {
+        if (random.nextFloat() < POLICE_CHANCE) {
+            debug("Вызываю полицию!");
+            PoliceSquads.spawn(level, this);
         }
     }
 

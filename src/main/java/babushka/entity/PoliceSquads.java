@@ -11,6 +11,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.EntitySelector;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 /** Список активных отрядов полиции и их создание. */
@@ -54,20 +56,30 @@ public final class PoliceSquads {
         }
     }
 
-    /** Вызывает отряд из 10 полицейских на расстоянии 20–28 блоков от бабушки. */
+    /**
+     * Вызывает отряд из 10 полицейских на расстоянии ~40 блоков от ближайшего к бабушке игрока.
+     * Они сразу идут к бабушке.
+     */
     public static void spawn(ServerLevel level, BabushkaEntity babushka) {
         if (hasSquadFor(babushka.getUUID())) {
+            return;
+        }
+        Player anchor = level.getNearestPlayer(
+            babushka.getX(), babushka.getY(), babushka.getZ(), 256.0, EntitySelector.NO_SPECTATORS);
+        if (anchor == null) {
             return;
         }
         PoliceSquad squad = new PoliceSquad(level, babushka.getUUID(), babushka.blockPosition());
         RandomSource r = babushka.getRandom();
         int attempts = 0;
-        while (squad.members.size() < SQUAD_SIZE && attempts++ < 120) {
+        while (squad.members.size() < SQUAD_SIZE && attempts++ < 200) {
+            // кольцо 36–40 блоков вокруг игрока; если не вышло (не прогружено) — ближе
+            double base = attempts < 120 ? BabushkaEntity.POLICE_SPAWN_DISTANCE : 20;
+            double dist = base - r.nextDouble() * 4;
             double ang = r.nextDouble() * Math.PI * 2;
-            double dist = (attempts < 60 ? 20 : 8) + r.nextDouble() * 8;
-            int x = babushka.getBlockX() + (int) (Math.cos(ang) * dist);
-            int z = babushka.getBlockZ() + (int) (Math.sin(ang) * dist);
-            BlockPos probe = new BlockPos(x, babushka.getBlockY(), z);
+            int x = (int) (anchor.getX() + Math.cos(ang) * dist);
+            int z = (int) (anchor.getZ() + Math.sin(ang) * dist);
+            BlockPos probe = new BlockPos(x, anchor.getBlockY(), z);
             if (!level.hasChunkAt(probe)) {
                 continue;
             }
