@@ -3,5 +3,8 @@
   "item.babushka.babushka_spawn_egg": "Babushka Spawn Egg",
   "subtitles.babushka.speech": "Babushka grumbles",
   "entity.babushka.police": "Policeman",
-  "subtitles.babushka.siren": "Police siren"
+  "subtitles.babushka.siren": "Police siren",
+  "death.attack.babushka_police_shot": "%1$s was killed for attacking a police officer",
+  "death.attack.babushka_galya": "%1$s was killed by Galya for bad behavior",
+  "entity.babushka.police_car": "VAZ-2109 Police Car"
 }

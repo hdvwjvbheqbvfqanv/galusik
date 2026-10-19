@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import babushka.ModDamage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -207,8 +208,8 @@ public class RoutineGoal extends Goal {
 
         if (attackCooldown <= 0 && mob.distanceToSqr(target) < 3.5) {
             mob.swing(InteractionHand.MAIN_HAND);
-            // источник "магия": пробивает броню и НЕ снимает с неё прочность
-            DamageSource source = level.damageSources().indirectMagic(mob, mob);
+            // свой тип урона (в чате: "был убит Галей за плохое поведение"), броня не ломается
+            DamageSource source = ModDamage.of(level, ModDamage.GALYA, mob);
             target.hurtServer(level, source, BabushkaEntity.ATTACK_DAMAGE);
             attackCooldown = 20;
         }

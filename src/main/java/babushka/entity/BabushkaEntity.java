@@ -57,8 +57,8 @@ public class BabushkaEntity extends PathfinderMob {
     public static final float ATTACK_DAMAGE = 99999.0F;
     /** Шанс вызвать отряд полиции, когда она включила свет. */
     public static final float POLICE_CHANCE = 0.65F;
-    /** Радиус, в котором она замечает игрока в голове моба. */
-    public static final double MOB_HEAD_RANGE = 8.0;
+    /** Радиус, в котором она замечает игрока в голове моба или тыкве. */
+    public static final double MOB_HEAD_RANGE = 24.0;
     /** Этапы: включить свет (RESTORING) -> выйти из дома -> гулять 10 с (или гнаться за игроком) -> вернуться. */
     public enum Phase { NONE, LEAVING, WANDER, HUNT, RETURNING, RESTORING }
 
@@ -151,14 +151,17 @@ public class BabushkaEntity extends PathfinderMob {
             || stack.is(Items.CARVED_PUMPKIN) || stack.is(Items.PUMPKIN);
     }
 
-    /** Рядом (в поле зрения) игрок с головой моба или тыквой на голове — "Ха-ха, артисты". */
+    /** Игрок с головой моба или тыквой на голове рядом (видит его или он совсем близко) — "Ха-ха, артисты". */
     private void checkMobHead(ServerLevel level) {
         for (Player p : level.getEntitiesOfClass(Player.class, getBoundingBox().inflate(MOB_HEAD_RANGE))) {
             if (!p.isAlive() || p.isSpectator() || !isMobHead(p.getItemBySlot(EquipmentSlot.HEAD))) {
                 continue;
             }
-            if (!hasLineOfSight(p)) {
+            if (!hasLineOfSight(p) && distanceToSqr(p) > 36.0) {
                 continue;
+            }
+            if (isSleeping()) {
+                stopSleeping();   // проснулась посмотреть на артиста
             }
             getLookControl().setLookAt(p, 30.0F, 30.0F);
             playSound(ModSounds.HAHA_ARTISTS, 1.0F, 1.0F);
@@ -189,7 +192,7 @@ public class BabushkaEntity extends PathfinderMob {
 
         if (hahaCooldown > 0) {
             hahaCooldown--;
-        } else if (!isSleeping() && tickCount % 10 == 0) {
+        } else if (tickCount % 10 == 0) {
             checkMobHead(level);
         }
 

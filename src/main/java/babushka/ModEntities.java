@@ -1,6 +1,7 @@
 package babushka;
 
 import babushka.entity.BabushkaEntity;
+import babushka.entity.PoliceCarEntity;
 import babushka.entity.PoliceEntity;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.minecraft.core.Registry;
@@ -38,6 +39,19 @@ public final class ModEntities {
             .clientTrackingRange(10)
             .build(POLICE_KEY));
 
+    public static final ResourceKey<EntityType<?>> POLICE_CAR_KEY =
+        ResourceKey.create(Registries.ENTITY_TYPE, BabushkaMod.id("police_car"));
+
+    /** ВАЗ-2109 ППС — появляется вместе с отрядом полиции. */
+    public static final EntityType<PoliceCarEntity> POLICE_CAR = Registry.register(
+        BuiltInRegistries.ENTITY_TYPE,
+        POLICE_CAR_KEY,
+        EntityType.Builder.of(PoliceCarEntity::new, MobCategory.MISC)
+            .sized(1.7F, 1.5F)
+            .eyeHeight(1.2F)
+            .clientTrackingRange(10)
+            .build(POLICE_CAR_KEY));
+
     public static Item SPAWN_EGG;
 
     private ModEntities() {}
@@ -45,6 +59,7 @@ public final class ModEntities {
     public static void register() {
         FabricDefaultAttributeRegistry.register(BABUSHKA, BabushkaEntity.createAttributes());
         FabricDefaultAttributeRegistry.register(POLICE, PoliceEntity.createAttributes());
+        FabricDefaultAttributeRegistry.register(POLICE_CAR, PoliceCarEntity.createAttributes());
 
         ResourceKey<Item> eggKey = ResourceKey.create(Registries.ITEM, BabushkaMod.id("babushka_spawn_egg"));
         SPAWN_EGG = Registry.register(

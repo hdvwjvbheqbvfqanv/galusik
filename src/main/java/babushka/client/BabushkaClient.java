@@ -9,5 +9,6 @@ public class BabushkaClient implements ClientModInitializer {
     public void onInitializeClient() {
         EntityRendererRegistry.register(ModEntities.BABUSHKA, BabushkaRenderer::new);
         EntityRendererRegistry.register(ModEntities.POLICE, PoliceRenderer::new);
+        EntityRendererRegistry.register(ModEntities.POLICE_CAR, CarRenderer::new);
     }
 }

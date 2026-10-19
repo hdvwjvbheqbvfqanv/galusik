@@ -3,5 +3,8 @@
   "item.babushka.babushka_spawn_egg": "Яйцо призыва: Бабушка",
   "subtitles.babushka.speech": "Бабушка ворчит",
   "entity.babushka.police": "Полицейский",
-  "subtitles.babushka.siren": "Сирена полиции"
+  "subtitles.babushka.siren": "Сирена полиции",
+  "death.attack.babushka_police_shot": "%1$s был убит за нападение на сотрудника полиции",
+  "death.attack.babushka_galya": "%1$s был убит Галей за плохое поведение",
+  "entity.babushka.police_car": "ВАЗ-2109 ППС"
 }

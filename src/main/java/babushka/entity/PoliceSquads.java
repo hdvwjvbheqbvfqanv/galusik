@@ -60,8 +60,8 @@ public final class PoliceSquads {
     }
 
     /**
-     * Вызывает отряд из 10 полицейских на расстоянии ~40 блоков от ближайшего к бабушке игрока.
-     * Они сразу идут к бабушке.
+     * Вызывает отряд (машина ВАЗ-2109 ППС + 10 полицейских) на расстоянии ~40 блоков от ближайшего
+     * к бабушке игрока. Все сразу идут к бабушке, сирена идёт от машины.
      */
     public static void spawn(ServerLevel level, BabushkaEntity babushka) {
         if (hasSquadFor(babushka.getUUID())) {
@@ -74,10 +74,34 @@ public final class PoliceSquads {
         }
         PoliceSquad squad = new PoliceSquad(level, babushka.getUUID(), babushka.blockPosition());
         RandomSource r = babushka.getRandom();
-        int attempts = 0;
-        while (squad.members.size() < SQUAD_SIZE && attempts++ < 200) {
-            // кольцо 36–40 блоков вокруг игрока; если не вышло (не прогружено) — ближе
-            double base = attempts < 120 ? BabushkaEntity.POLICE_SPAWN_DISTANCE : 20;
+
+        // машина
+        PoliceCarEntity car = new PoliceCarEntity(ModEntities.POLICE_CAR, level);
+        if (place(level, squad, car, anchor, r)) {
+            // сирена идёт от машины; звук привязан к ней и едет вместе с ней (слышна за ~64 блока)
+            level.playSeededSound(null, car, BuiltInRegistries.SOUND_EVENT.wrapAsHolder(ModSounds.POLICE_SIREN),
+                SoundSource.HOSTILE, 4.0F, 1.0F, r.nextLong());
+        }
+
+        // полицейские
+        int cops = 0;
+        int failures = 0;
+        while (cops < SQUAD_SIZE && failures < 100) {
+            if (place(level, squad, new PoliceEntity(ModEntities.POLICE, level), anchor, r)) {
+                cops++;
+            } else {
+                failures++;
+            }
+        }
+        if (!squad.members.isEmpty()) {
+            SQUADS.add(squad);
+        }
+    }
+
+    /** Ставит существо в кольце 36–40 блоков вокруг игрока; если не прогружено — ближе. */
+    private static boolean place(ServerLevel level, PoliceSquad squad, PoliceEntity e, Player anchor, RandomSource r) {
+        for (int attempt = 0; attempt < 40; attempt++) {
+            double base = attempt < 25 ? BabushkaEntity.POLICE_SPAWN_DISTANCE : 20;
             double dist = base - r.nextDouble() * 4;
             double ang = r.nextDouble() * Math.PI * 2;
             int x = (int) (anchor.getX() + Math.cos(ang) * dist);
@@ -91,20 +115,14 @@ public final class PoliceSquads {
                 || !level.getBlockState(top.below()).isFaceSturdy(level, top.below(), Direction.UP)) {
                 continue;
             }
-            PoliceEntity cop = new PoliceEntity(ModEntities.POLICE, level);
-            cop.setPos(top.getX() + 0.5, top.getY(), top.getZ() + 0.5);
-            cop.squadId = squad.id;
-            cop.center = squad.center;
-            cop.mode = PoliceEntity.Mode.GATHER;
-            level.addFreshEntity(cop);
-            squad.members.add(cop);
+            e.setPos(top.getX() + 0.5, top.getY(), top.getZ() + 0.5);
+            e.squadId = squad.id;
+            e.center = squad.center;
+            e.mode = PoliceEntity.Mode.GATHER;
+            level.addFreshEntity(e);
+            squad.members.add(e);
+            return true;
         }
-        if (!squad.members.isEmpty()) {
-            SQUADS.add(squad);
-            // сирена от одного из полицейских; звук привязан к нему и едет вместе с ним (слышна за ~64 блока)
-            PoliceEntity siren = squad.members.get(0);
-            level.playSeededSound(null, siren, BuiltInRegistries.SOUND_EVENT.wrapAsHolder(ModSounds.POLICE_SIREN),
-                SoundSource.HOSTILE, 4.0F, 1.0F, r.nextLong());
-        }
+        return false;
     }
 }
