@@ -1,0 +1,6 @@
+{
+ "model": {
+  "type": "minecraft:model",
+  "model": "babushka:block/electrical_panel_closed"
+ }
+}

@@ -6,5 +6,7 @@
   "subtitles.babushka.siren": "Police siren",
   "death.attack.babushka_police_shot": "%1$s was killed for attacking a police officer",
   "death.attack.babushka_galya": "%1$s was killed by Galya for bad behavior",
-  "entity.babushka.police_car": "VAZ-2109 Police Car"
+  "entity.babushka.police_car": "VAZ-2109 Police Car",
+  "block.babushka.electrical_panel": "Electrical Panel",
+  "item.babushka.electrical_panel": "Electrical Panel"
 }

@@ -14,6 +14,7 @@ public class BabushkaMod implements ModInitializer {
     @Override
     public void onInitialize() {
         ModSounds.register();
+        ModBlocks.register();
         ModEntities.register();
         PoliceSquads.init();
     }

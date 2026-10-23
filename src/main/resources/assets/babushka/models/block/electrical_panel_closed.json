@@ -1,0 +1,326 @@
+{
+ "parent": "minecraft:block/block",
+ "textures": {
+  "particle": "babushka:block/ep_body",
+  "body": "babushka:block/ep_body",
+  "door_top": "babushka:block/ep_door_top",
+  "meter": "babushka:block/ep_meter",
+  "door_right": "babushka:block/ep_door_right",
+  "door_back": "babushka:block/ep_door_back",
+  "interior": "babushka:block/ep_interior",
+  "breaker": "babushka:block/ep_breaker",
+  "handle": "babushka:block/ep_handle",
+  "knob": "babushka:block/ep_knob"
+ },
+ "elements": [
+  {
+   "from": [
+    0,
+    0,
+    9
+   ],
+   "to": [
+    16,
+    16,
+    16
+   ],
+   "faces": {
+    "east": {
+     "uv": [
+      0,
+      0,
+      7,
+      16
+     ],
+     "texture": "#body"
+    },
+    "west": {
+     "uv": [
+      0,
+      0,
+      7,
+      16
+     ],
+     "texture": "#body"
+    },
+    "south": {
+     "uv": [
+      0,
+      0,
+      16,
+      16
+     ],
+     "texture": "#body"
+    },
+    "up": {
+     "uv": [
+      0,
+      0,
+      16,
+      7
+     ],
+     "texture": "#body"
+    },
+    "down": {
+     "uv": [
+      0,
+      0,
+      16,
+      7
+     ],
+     "texture": "#body"
+    }
+   }
+  },
+  {
+   "from": [
+    0,
+    0,
+    8
+   ],
+   "to": [
+    8,
+    9,
+    9
+   ],
+   "faces": {
+    "north": {
+     "uv": [
+      0,
+      0,
+      16,
+      16
+     ],
+     "texture": "#meter"
+    },
+    "west": {
+     "uv": [
+      0,
+      0,
+      1,
+      9
+     ],
+     "texture": "#body"
+    },
+    "down": {
+     "uv": [
+      0,
+      0,
+      8,
+      1
+     ],
+     "texture": "#body"
+    }
+   }
+  },
+  {
+   "from": [
+    8,
+    0,
+    8
+   ],
+   "to": [
+    16,
+    16,
+    9
+   ],
+   "faces": {
+    "north": {
+     "uv": [
+      0,
+      0,
+      16,
+      16
+     ],
+     "texture": "#door_right"
+    },
+    "east": {
+     "uv": [
+      0,
+      0,
+      1,
+      16
+     ],
+     "texture": "#body"
+    },
+    "up": {
+     "uv": [
+      0,
+      0,
+      8,
+      1
+     ],
+     "texture": "#body"
+    },
+    "down": {
+     "uv": [
+      0,
+      0,
+      8,
+      1
+     ],
+     "texture": "#body"
+    }
+   }
+  },
+  {
+   "from": [
+    8.7,
+    7.4,
+    7.2
+   ],
+   "to": [
+    10.1,
+    8.8,
+    8
+   ],
+   "faces": {
+    "north": {
+     "uv": [
+      0,
+      0,
+      4,
+      4
+     ],
+     "texture": "#knob"
+    },
+    "up": {
+     "uv": [
+      0,
+      0,
+      4,
+      2
+     ],
+     "texture": "#knob"
+    },
+    "down": {
+     "uv": [
+      0,
+      0,
+      4,
+      2
+     ],
+     "texture": "#knob"
+    },
+    "east": {
+     "uv": [
+      0,
+      0,
+      2,
+      4
+     ],
+     "texture": "#knob"
+    },
+    "west": {
+     "uv": [
+      0,
+      0,
+      2,
+      4
+     ],
+     "texture": "#knob"
+    }
+   }
+  },
+  {
+   "from": [
+    0,
+    9,
+    8
+   ],
+   "to": [
+    8,
+    16,
+    9
+   ],
+   "faces": {
+    "north": {
+     "uv": [
+      0,
+      0,
+      16,
+      16
+     ],
+     "texture": "#door_top"
+    },
+    "west": {
+     "uv": [
+      0,
+      0,
+      1,
+      7
+     ],
+     "texture": "#body"
+    },
+    "up": {
+     "uv": [
+      0,
+      0,
+      8,
+      1
+     ],
+     "texture": "#body"
+    }
+   }
+  },
+  {
+   "from": [
+    6.2,
+    12.2,
+    7.3
+   ],
+   "to": [
+    7.4,
+    13.4,
+    8
+   ],
+   "faces": {
+    "north": {
+     "uv": [
+      0,
+      0,
+      4,
+      4
+     ],
+     "texture": "#knob"
+    },
+    "up": {
+     "uv": [
+      0,
+      0,
+      4,
+      2
+     ],
+     "texture": "#knob"
+    },
+    "down": {
+     "uv": [
+      0,
+      0,
+      4,
+      2
+     ],
+     "texture": "#knob"
+    },
+    "east": {
+     "uv": [
+      0,
+      0,
+      2,
+      4
+     ],
+     "texture": "#knob"
+    },
+    "west": {
+     "uv": [
+      0,
+      0,
+      2,
+      4
+     ],
+     "texture": "#knob"
+    }
+   }
+  }
+ ]
+}

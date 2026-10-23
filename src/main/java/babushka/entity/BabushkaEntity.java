@@ -5,6 +5,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -19,7 +20,7 @@ import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.goal.OpenDoorGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
-import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
+import net.minecraft.world.entity.ai.util.LandRandomPos;
 import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -49,6 +50,14 @@ public class BabushkaEntity extends PathfinderMob {
     /** На каком расстоянии замечает игрока во время прогулки. */
     public static final double SEE_PLAYER_RANGE = 24.0;
     public static final int HOME_RADIUS = 32;
+    /** Как редко бродит по дому: чем больше, тем дольше стоит на месте (у обычного жителя 120). */
+    public static final int STROLL_INTERVAL = 360;
+    /** Шанс, что обычная прогулка ведёт наружу (иначе — по комнатам дома). */
+    public static final float OUTSIDE_STROLL_CHANCE = 0.08F;
+    /** Сколько можно пробыть вне дома (тиков), потом она возвращается: 160 = 8 секунд. */
+    public static final int OUTSIDE_LIMIT_TICKS = 160;
+    /** Шанс, что после включения света она выйдет погулять 10 секунд (иначе остаётся дома). */
+    public static final float OUTSIDE_WALK_CHANCE = 0.5F;
     /** Нужен только старым файлам SeekLightGoal/StandInLightGoal (их можно удалить из репозитория). */
     public static final int SEARCH_RADIUS = 20;
     /** На каком расстоянии от игрока появляется отряд полиции. */
@@ -67,6 +76,7 @@ public class BabushkaEntity extends PathfinderMob {
     private int homeSearchCooldown;
     private int lastLine = -1;
     private int hahaCooldown;
+    private int outsideTicks;
 
     // состояние "света нет" (доступно RoutineGoal из этого же пакета)
     Phase phase = Phase.NONE;
@@ -103,7 +113,7 @@ public class BabushkaEntity extends PathfinderMob {
         goalSelector.addGoal(2, new SleepInBedGoal(this));
         goalSelector.addGoal(4, new OpenDoorGoal(this, true));
         goalSelector.addGoal(5, new GoHomeGoal());
-        goalSelector.addGoal(6, new WaterAvoidingRandomStrollGoal(this, 0.6));
+        goalSelector.addGoal(6, new HomeStrollGoal());
         goalSelector.addGoal(7, new LookAtPlayerGoal(this, Player.class, 8.0F));
         goalSelector.addGoal(8, new RandomLookAroundGoal(this));
     }
@@ -160,9 +170,6 @@ public class BabushkaEntity extends PathfinderMob {
             if (!hasLineOfSight(p) && distanceToSqr(p) > 36.0) {
                 continue;
             }
-            if (isSleeping()) {
-                stopSleeping();   // проснулась посмотреть на артиста
-            }
             getLookControl().setLookAt(p, 30.0F, 30.0F);
             playSound(ModSounds.HAHA_ARTISTS, 1.0F, 1.0F);
             hahaCooldown = ModSounds.HAHA_TICKS + 100;
@@ -192,8 +199,14 @@ public class BabushkaEntity extends PathfinderMob {
 
         if (hahaCooldown > 0) {
             hahaCooldown--;
-        } else if (tickCount % 10 == 0) {
-            checkMobHead(level);
+        } else if (!isSleeping() && tickCount % 10 == 0) {
+            checkMobHead(level);   // реагирует только пока бодрствует
+        }
+
+        if (isSleeping() || phase != Phase.NONE || inHouse()) {
+            outsideTicks = 0;
+        } else {
+            outsideTicks++;
         }
 
         if (isSleeping()) {
@@ -262,6 +275,10 @@ public class BabushkaEntity extends PathfinderMob {
         knownSources = house.scanSources(level, LIGHT_OK);
         if (random.nextFloat() < POLICE_CHANCE) {
             PoliceSquads.spawn(level, this);
+        }
+        if (random.nextFloat() >= OUTSIDE_WALK_CHANCE) {
+            phase = Phase.NONE;   // осталась дома
+            return;
         }
         exitPos = house.findExit(level, blockPosition());
         if (exitPos != null) {
@@ -356,7 +373,7 @@ public class BabushkaEntity extends PathfinderMob {
         return best;
     }
 
-    /** Если ушла от дома дальше HOME_RADIUS/2 — возвращается к своей кровати. */
+    /** Вернуться домой: пробыла вне дома дольше OUTSIDE_LIMIT_TICKS или ушла дальше 12 блоков от кровати. */
     private class GoHomeGoal extends Goal {
         GoHomeGoal() {
             setFlags(EnumSet.of(Flag.MOVE));
@@ -364,18 +381,72 @@ public class BabushkaEntity extends PathfinderMob {
 
         @Override
         public boolean canUse() {
-            return homeBed != null && !isSleeping()
-                && blockPosition().distSqr(homeBed) > (HOME_RADIUS / 2.0) * (HOME_RADIUS / 2.0);
+            if (homeBed == null || isSleeping() || phase != Phase.NONE) {
+                return false;
+            }
+            return (!inHouse() && outsideTicks > OUTSIDE_LIMIT_TICKS)
+                || blockPosition().distSqr(homeBed) > 12.0 * 12.0;
         }
 
         @Override
         public boolean canContinueToUse() {
-            return canUse() && !getNavigation().isDone();
+            return homeBed != null && phase == Phase.NONE && !isSleeping()
+                && !inHouse() && !getNavigation().isDone();
         }
 
         @Override
         public void start() {
             getNavigation().moveTo(homeBed.getX() + 0.5, homeBed.getY(), homeBed.getZ() + 0.5, 0.6);
+        }
+    }
+
+    /**
+     * Обычное блуждание: в основном по комнатам дома и редко (OUTSIDE_STROLL_CHANCE) наружу;
+     * между прогулками стоит значительно дольше обычного жителя.
+     */
+    private class HomeStrollGoal extends Goal {
+        HomeStrollGoal() {
+            setFlags(EnumSet.of(Flag.MOVE));
+        }
+
+        @Override
+        public boolean canUse() {
+            if (isSleeping() || phase != Phase.NONE || !getNavigation().isDone()) {
+                return false;
+            }
+            return getRandom().nextInt(STROLL_INTERVAL) == 0;
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            return phase == Phase.NONE && !isSleeping() && !getNavigation().isDone();
+        }
+
+        @Override
+        public void start() {
+            Vec3 dest = null;
+            if (homeBed != null && !house.isEmpty() && getRandom().nextFloat() >= OUTSIDE_STROLL_CHANCE) {
+                dest = randomHouseSpot();
+            }
+            if (dest == null) {
+                dest = LandRandomPos.getPos(BabushkaEntity.this, 8, 4);
+            }
+            if (dest != null) {
+                getNavigation().moveTo(dest.x, dest.y, dest.z, 0.6);
+            }
+        }
+
+        private Vec3 randomHouseSpot() {
+            for (int i = 0; i < 12; i++) {
+                BlockPos c = house.randomCell(getRandom());
+                if (c == null) {
+                    return null;
+                }
+                if (level().getBlockState(c.below()).isFaceSturdy(level(), c.below(), Direction.UP)) {
+                    return Vec3.atBottomCenterOf(c);
+                }
+            }
+            return null;
         }
     }
 

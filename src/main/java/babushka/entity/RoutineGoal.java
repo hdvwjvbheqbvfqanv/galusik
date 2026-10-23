@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import babushka.ModDamage;
+import babushka.block.ElectricalPanelBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -19,6 +20,7 @@ import net.minecraft.world.entity.EntitySelector;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.util.LandRandomPos;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.LeverBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -268,6 +270,9 @@ public class RoutineGoal extends Goal {
 
         int now = mob.litCount(level);
         if (now >= mob.litBefore) {
+            if (toggledLever != null) {
+                ElectricalPanelBlock.closeByMob(level, toggledLever);   // закрыла дверцу щитка
+            }
             mob.afterLightRestored(level);   // свет вернулся: полиция (65%) и прогулка 10 секунд
             return;
         }
@@ -383,7 +388,8 @@ public class RoutineGoal extends Goal {
                     if (!level.hasChunkAt(p) || triedLevers.contains(p.asLong())) {
                         continue;
                     }
-                    if (level.getBlockState(p).getBlock() instanceof LeverBlock) {
+                    Block found = level.getBlockState(p).getBlock();
+                    if (found instanceof LeverBlock || found instanceof ElectricalPanelBlock) {
                         levers.add(p.immutable());
                     }
                 }
@@ -439,6 +445,11 @@ public class RoutineGoal extends Goal {
 
     private void toggleLever(ServerLevel level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
+        if (state.getBlock() instanceof ElectricalPanelBlock) {
+            ElectricalPanelBlock.toggleByMob(level, pos);   // открывает дверцу и переключает автомат, как рычаг
+            mob.swing(InteractionHand.MAIN_HAND);
+            return;
+        }
         if (!(state.getBlock() instanceof LeverBlock)) {
             return;
         }

@@ -8,6 +8,7 @@ import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.RandomSource;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.CopperBulbBlock;
@@ -23,6 +24,18 @@ public final class House {
     private static final int RADIUS_XZ = 12;
 
     public final Set<Long> cells = new HashSet<>();
+    private long[] cellArray;
+
+    /** Случайная клетка дома (для прогулок по комнатам). */
+    public BlockPos randomCell(RandomSource random) {
+        if (cells.isEmpty()) {
+            return null;
+        }
+        if (cellArray == null) {
+            cellArray = cells.stream().mapToLong(Long::longValue).toArray();
+        }
+        return BlockPos.of(cellArray[random.nextInt(cellArray.length)]);
+    }
 
     public boolean isEmpty() {
         return cells.isEmpty();
