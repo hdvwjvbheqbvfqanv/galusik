@@ -20,14 +20,17 @@ import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
- * Электрощиток 16x16 (глубина 8). Работает как рычаг (источник редстоун-сигнала), но:
- * рычажки автоматов спрятаны за дверцей — сначала дверцу надо открыть.
- * ПКМ по верхней левой дверце: закрыта -> открывает; открыта -> клик по автоматам включает/выключает
- * питание, клик по остальной части проёма (или Shift+ПКМ) закрывает дверцу.
- * Остальные части щитка (правая дверь, счётчики) для взаимодействия недоступны.
+ * Электрощиток 16x16 (глубина 8). Работает как рычаг (источник редстоун-сигнала), но автоматы спрятаны за дверцей.
+ * Всё срабатывает ТОЛЬКО при наведении курсора на нужную часть:
+ *  - верхняя левая дверца (закрыта): ПКМ по ней — открывается; открытую можно закрыть ПКМ по самой створке
+ *    или Shift+ПКМ по месту дверцы;
+ *  - открытая: ПКМ по маленькому жёлтому рычажку ВТОРОГО СЛЕВА автомата — переключает питание (рычажок опускается/поднимается);
+ *    остальные три жёлтых рычажка — декор;
+ *  - все остальные части щитка (правая дверь, счётчики, корпус) ни на что не влияют.
  */
 public class ElectricalPanelBlock extends HorizontalDirectionalBlock {
     public static final MapCodec<ElectricalPanelBlock> CODEC = simpleCodec(ElectricalPanelBlock::new);
@@ -36,11 +39,35 @@ public class ElectricalPanelBlock extends HorizontalDirectionalBlock {
     /** Питание включено (как у рычага). */
     public static final BooleanProperty POWERED = BlockStateProperties.POWERED;
 
-    // Корпус занимает заднюю половину клетки (глубина 8, как основание рычага)
-    private static final VoxelShape SHAPE_NORTH = Block.box(0, 0, 8, 16, 16, 16);
-    private static final VoxelShape SHAPE_SOUTH = Block.box(0, 0, 0, 16, 16, 8);
-    private static final VoxelShape SHAPE_EAST = Block.box(0, 0, 0, 8, 16, 16);
-    private static final VoxelShape SHAPE_WEST = Block.box(8, 0, 0, 16, 16, 16);
+    // Корпус занимает заднюю половину клетки (глубина 8, как основание рычага); лицо смотрит на север при facing=north.
+    // Открытая дверца (петли слева для игрока) торчит вперёд: box(15.2, 9.2, 0, 16, 16, 9).
+    private static final VoxelShape[] BODY = new VoxelShape[4];
+    private static final VoxelShape[] PLATE = new VoxelShape[4];
+    static {
+        for (int turns = 0; turns < 4; turns++) {
+            BODY[turns] = rotatedBox(turns, 0, 0, 8, 16, 16, 16);
+            PLATE[turns] = rotatedBox(turns, 15.2, 9.2, 0, 16, 16, 9);
+        }
+    }
+
+    /** Коробка в координатах "лицом на север", повёрнутая на turns*90° по часовой (север -> восток -> юг -> запад). */
+    private static VoxelShape rotatedBox(int turns, double x0, double y0, double z0, double x1, double y1, double z1) {
+        double ax = x0, az = z0, bx = x1, bz = z1;
+        for (int i = 0; i < turns; i++) {
+            double nx0 = 16 - bz, nx1 = 16 - az, nz0 = ax, nz1 = bx;
+            ax = nx0; bx = nx1; az = nz0; bz = nz1;
+        }
+        return Block.box(Math.min(ax, bx), y0, Math.min(az, bz), Math.max(ax, bx), y1, Math.max(az, bz));
+    }
+
+    private static int turns(Direction facing) {
+        return switch (facing) {
+            case EAST -> 1;
+            case SOUTH -> 2;
+            case WEST -> 3;
+            default -> 0;
+        };
+    }
 
     public ElectricalPanelBlock(BlockBehaviour.Properties properties) {
         super(properties);
@@ -70,12 +97,8 @@ public class ElectricalPanelBlock extends HorizontalDirectionalBlock {
 
     @Override
     protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-        return switch (state.getValue(FACING)) {
-            case SOUTH -> SHAPE_SOUTH;
-            case EAST -> SHAPE_EAST;
-            case WEST -> SHAPE_WEST;
-            default -> SHAPE_NORTH;
-        };
+        int t = turns(state.getValue(FACING));
+        return state.getValue(OPEN) ? Shapes.or(BODY[t], PLATE[t]) : BODY[t];
     }
 
     // ---------------------------------------------------------------- как у рычага: источник сигнала
@@ -111,31 +134,66 @@ public class ElectricalPanelBlock extends HorizontalDirectionalBlock {
         return new double[] {u * 16.0, (1.0 - y) * 16.0};
     }
 
+    /** Верхняя левая дверца на лицевой стороне: u 0..9, v 0..6.8. */
+    private static boolean onDoor(double u, double v) {
+        return u >= 0.0 && u <= 9.0 && v >= 0.0 && v <= 6.8;
+    }
+
+    /**
+     * Маленький жёлтый рычажок второго слева автомата (u 2.85..3.75). Положение зависит от питания:
+     * включено — вверху (v 2.8..4.0), выключено — внизу (v 4.4..5.6). Небольшой запас на перспективу.
+     */
+    private static boolean onHandle(double u, double v, boolean powered) {
+        double v0 = powered ? 2.8 : 4.4;
+        double v1 = powered ? 4.0 : 5.6;
+        return u >= 2.85 - 0.4 && u <= 3.75 + 0.4 && v >= v0 - 0.35 && v <= v1 + 0.35;
+    }
+
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hit) {
         Direction facing = state.getValue(FACING);
+        boolean open = state.getValue(OPEN);
+        Vec3 loc = hit.getLocation();
+        double lx = loc.x - pos.getX(), ly = loc.y - pos.getY(), lz = loc.z - pos.getZ();
+
+        // открытая створка: ПКМ по ней закрывает дверцу
+        if (open && PLATE[turns(facing)].bounds().inflate(1.0E-3).contains(lx, ly, lz)) {
+            if (!level.isClientSide()) {
+                setOpen(level, pos, state, false);
+            }
+            return InteractionResult.SUCCESS;
+        }
+
+        // всё остальное — только с лицевой стороны
         if (hit.getDirection() != facing) {
             return InteractionResult.PASS;
         }
-        double[] uv = frontUv(facing, hit.getLocation(), pos);
+        double[] uv = frontUv(facing, loc, pos);
         double u = uv[0], v = uv[1];
-        // верхняя левая дверца: u 0..8, v 0..7; остальное — недоступно
-        if (u < 0.0 || u > 8.0 || v < 0.0 || v > 7.0) {
-            return InteractionResult.PASS;
-        }
-        if (level.isClientSide()) {
+
+        if (!open) {
+            if (!onDoor(u, v)) {
+                return InteractionResult.PASS;               // правая дверь, счётчики и корпус ничего не делают
+            }
+            if (!level.isClientSide()) {
+                setOpen(level, pos, state, true);
+            }
             return InteractionResult.SUCCESS;
         }
-        if (!state.getValue(OPEN)) {
-            setOpen(level, pos, state, true);                         // закрыто — открываем (автоматы недоступны)
-        } else if (player.isShiftKeyDown()) {
-            setOpen(level, pos, state, false);
-        } else if (u >= 0.8 && u <= 6.8 && v >= 1.5 && v <= 6.0) {
-            toggleBreaker(level, pos, state);                         // клик по автоматам — как рычаг
-        } else {
-            setOpen(level, pos, state, false);                        // клик по остальному проёму — закрыть
+
+        if (onDoor(u, v) && player.isShiftKeyDown()) {
+            if (!level.isClientSide()) {
+                setOpen(level, pos, state, false);
+            }
+            return InteractionResult.SUCCESS;
         }
-        return InteractionResult.SUCCESS;
+        if (onHandle(u, v, state.getValue(POWERED))) {
+            if (!level.isClientSide()) {
+                toggleBreaker(level, pos, state);            // работает как рычаг
+            }
+            return InteractionResult.SUCCESS;
+        }
+        return InteractionResult.PASS;                       // мимо рычажка — ничего не происходит
     }
 
     // ---------------------------------------------------------------- действия (их же использует бабушка)
