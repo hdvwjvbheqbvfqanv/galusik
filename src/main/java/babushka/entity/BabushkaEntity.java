@@ -1,15 +1,23 @@
 package babushka.entity;
 
+import babushka.ModEntities;
 import babushka.ModSounds;
+import java.util.List;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
+import com.mojang.serialization.Codec;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.AgeableMob;
+import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.PathfinderMob;
@@ -35,10 +43,10 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Бабушка: живёт как житель (ходит, спит ночью в своей кровати, открывает двери),
- * но не торгует. В темноте ищет свет и каждые 2 секунды выдаёт случайную реплику;
- * найдя свет, стоит на месте ещё минуту и продолжает говорить с тем же интервалом.
+ * но не торгует; размножается с жителями и другими бабушками по логике жителей (еда, возраст, детёныши растут 20 минут).
+ * Когда в доме пропадает свет — идёт его включать (см. RoutineGoal).
  */
-public class BabushkaEntity extends PathfinderMob {
+public class BabushkaEntity extends AgeableMob {
 
     // ---- Настройки (меняйте здесь) ----
     /** Пауза между репликами, отсчитывается ПОСЛЕ окончания реплики: 40 тиков = 2 секунды. */
@@ -66,6 +74,12 @@ public class BabushkaEntity extends PathfinderMob {
     public static final float ATTACK_DAMAGE = 99999.0F;
     /** Шанс вызвать отряд полиции, когда она включила свет. */
     public static final float POLICE_CHANCE = 0.65F;
+    /** Поле зрения при реакции на головы/тыкву: cos(70°) -> видит в секторе 140° перед собой. */
+    public static final double FOV_COS = 0.34;
+    /** Размножение (как у жителей): нужно 12 очков еды (хлеб = 4, морковь/картошка/свёкла = 1), возраст — взрослая. */
+    public static final int BREED_FOOD = 12;
+    public static final int BREED_COOLDOWN_TICKS = 6000;
+    public static final int BABY_AGE = -24000;
     /** Радиус, в котором она замечает игрока в голове моба или тыкве. */
     public static final double MOB_HEAD_RANGE = 24.0;
     /** Этапы: включить свет (RESTORING) -> выйти из дома -> гулять 10 с (или гнаться за игроком) -> вернуться. */
@@ -77,6 +91,8 @@ public class BabushkaEntity extends PathfinderMob {
     private int lastLine = -1;
     private int hahaCooldown;
     private int outsideTicks;
+    /** Очки еды (как у жителей): получает от игрока с хлебом/морковью/картошкой/свёклой. */
+    int foodLevel;
 
     // состояние "света нет" (доступно RoutineGoal из этого же пакета)
     Phase phase = Phase.NONE;
@@ -110,6 +126,7 @@ public class BabushkaEntity extends PathfinderMob {
     protected void registerGoals() {
         goalSelector.addGoal(0, new FloatGoal(this));
         goalSelector.addGoal(1, new RoutineGoal(this));
+        goalSelector.addGoal(3, new BreedGoal());
         goalSelector.addGoal(2, new SleepInBedGoal(this));
         goalSelector.addGoal(4, new OpenDoorGoal(this, true));
         goalSelector.addGoal(5, new GoHomeGoal());
@@ -161,19 +178,157 @@ public class BabushkaEntity extends PathfinderMob {
             || stack.is(Items.CARVED_PUMPKIN) || stack.is(Items.PUMPKIN);
     }
 
-    /** Игрок с головой моба или тыквой на голове рядом (видит его или он совсем близко) — "Ха-ха, артисты". */
+    /**
+     * Игрок с головой моба или тыквой на голове в её ПОЛЕ ЗРЕНИЯ (видит его, сектор 140° перед ней) — "Ха-ха, артисты".
+     * Только пока она бодрствует.
+     */
     private void checkMobHead(ServerLevel level) {
+        if (isSleeping() || getSleepingPos().isPresent() || isBaby()) {
+            return;
+        }
+        Vec3 eye = getEyePosition();
+        Vec3 look = getViewVector(1.0F);
         for (Player p : level.getEntitiesOfClass(Player.class, getBoundingBox().inflate(MOB_HEAD_RANGE))) {
             if (!p.isAlive() || p.isSpectator() || !isMobHead(p.getItemBySlot(EquipmentSlot.HEAD))) {
                 continue;
             }
-            if (!hasLineOfSight(p) && distanceToSqr(p) > 36.0) {
-                continue;
+            Vec3 to = p.getEyePosition().subtract(eye);
+            if (to.lengthSqr() < 1.0E-4 || look.dot(to.normalize()) < FOV_COS || !hasLineOfSight(p)) {
+                continue;     // вне поля зрения или за препятствием
             }
-            getLookControl().setLookAt(p, 30.0F, 30.0F);
             playSound(ModSounds.HAHA_ARTISTS, 1.0F, 1.0F);
             hahaCooldown = ModSounds.HAHA_TICKS + 100;
             return;
+        }
+    }
+
+    // ---------------------------------------------------------------- размножение (как у жителей)
+
+    private static int foodPoints(ItemStack stack) {
+        if (stack.is(Items.BREAD)) {
+            return 4;
+        }
+        if (stack.is(Items.CARROT) || stack.is(Items.POTATO) || stack.is(Items.BEETROOT)) {
+            return 1;
+        }
+        return 0;
+    }
+
+    /** Готова ли к размножению: взрослая, не спит, достаточно еды, нет "паузы" после прошлого раза. */
+    public boolean canBreed() {
+        return !isBaby() && getAge() == 0 && !isSleeping() && foodLevel >= BREED_FOOD && phase == Phase.NONE;
+    }
+
+    @Override
+    public AgeableMob getBreedOffspring(ServerLevel level, AgeableMob partner) {
+        return ModEntities.BABUSHKA.create(level, EntitySpawnReason.BREEDING);
+    }
+
+    /** Еда от игрока (как у жителей): хлеб = 4 очка, морковь/картошка/свёкла = 1. */
+    @Override
+    protected InteractionResult mobInteract(Player player, InteractionHand hand) {
+        ItemStack stack = player.getItemInHand(hand);
+        int points = foodPoints(stack);
+        if (points > 0 && !isBaby() && foodLevel < BREED_FOOD * 2) {
+            if (level() instanceof ServerLevel sl) {
+                foodLevel += points;
+                if (!player.getAbilities().instabuild) {
+                    stack.shrink(1);
+                }
+                sl.sendParticles(ParticleTypes.HAPPY_VILLAGER, getX(), getY() + 1.0, getZ(), 4, 0.3, 0.4, 0.3, 0.02);
+            }
+            return InteractionResult.SUCCESS;
+        }
+        return super.mobInteract(player, hand);
+    }
+
+    /** Идёт к готовому партнёру (житель или другая бабушка), после паузы появляется маленькая бабушка. */
+    private class BreedGoal extends Goal {
+        private AgeableMob partner;
+        private int loveTimer;
+
+        BreedGoal() {
+            setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
+        }
+
+        private AgeableMob findPartner() {
+            if (!(level() instanceof ServerLevel sl)) {
+                return null;
+            }
+            List<AgeableMob> list = sl.getEntitiesOfClass(AgeableMob.class, getBoundingBox().inflate(16.0),
+                m -> m != BabushkaEntity.this && m.isAlive() && !m.isBaby()
+                    && (m.getType() == EntityType.VILLAGER || m instanceof BabushkaEntity) && m.canBreed());
+            AgeableMob best = null;
+            double bestD = Double.MAX_VALUE;
+            for (AgeableMob m : list) {
+                double d = distanceToSqr(m);
+                if (d < bestD) {
+                    bestD = d;
+                    best = m;
+                }
+            }
+            return best;
+        }
+
+        @Override
+        public boolean canUse() {
+            if (homeBed == null || !canBreed() || getRandom().nextInt(40) != 0) {
+                return false;
+            }
+            partner = findPartner();
+            return partner != null;
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            return partner != null && partner.isAlive() && canBreed() && partner.canBreed();
+        }
+
+        @Override
+        public void start() {
+            loveTimer = 0;
+        }
+
+        @Override
+        public void stop() {
+            partner = null;
+            getNavigation().stop();
+        }
+
+        @Override
+        public void tick() {
+            getLookControl().setLookAt(partner, 10.0F, 40.0F);
+            if (distanceToSqr(partner) > 4.0) {
+                if (tickCount % 10 == 0 || getNavigation().isDone()) {
+                    getNavigation().moveTo(partner, 0.7);
+                }
+                return;
+            }
+            getNavigation().stop();
+            loveTimer++;
+            if (loveTimer % 10 == 0 && level() instanceof ServerLevel sl) {
+                sl.sendParticles(ParticleTypes.HEART, getX(), getY() + 1.2, getZ(), 2, 0.3, 0.3, 0.3, 0.02);
+            }
+            if (loveTimer >= 100 && level() instanceof ServerLevel sl) {
+                breed(sl);
+            }
+        }
+
+        private void breed(ServerLevel sl) {
+            BabushkaEntity baby = ModEntities.BABUSHKA.create(sl, EntitySpawnReason.BREEDING);
+            if (baby != null) {
+                baby.setAge(BABY_AGE);                 // детёныш растёт 20 минут, как у жителей
+                baby.setPos(getX(), getY(), getZ());
+                sl.addFreshEntity(baby);
+                sl.sendParticles(ParticleTypes.HEART, getX(), getY() + 1.0, getZ(), 7, 0.5, 0.5, 0.5, 0.02);
+            }
+            foodLevel -= BREED_FOOD;
+            setAge(BREED_COOLDOWN_TICKS);
+            if (partner instanceof BabushkaEntity other) {
+                other.foodLevel -= BREED_FOOD;
+            }
+            partner.setAge(BREED_COOLDOWN_TICKS);      // пауза, чтобы не плодились бесконечно
+            partner = null;
         }
     }
 
@@ -188,6 +343,9 @@ public class BabushkaEntity extends PathfinderMob {
     }
 
     private void serverTick(ServerLevel level) {
+        if (isBaby()) {
+            return;       // маленькие бабушки просто гуляют и растут
+        }
         if (--homeSearchCooldown <= 0) {
             homeSearchCooldown = homeBed == null ? 200 : 100;
             validateOrFindHome(level);
@@ -199,8 +357,8 @@ public class BabushkaEntity extends PathfinderMob {
 
         if (hahaCooldown > 0) {
             hahaCooldown--;
-        } else if (!isSleeping() && tickCount % 10 == 0) {
-            checkMobHead(level);   // реагирует только пока бодрствует
+        } else if (!isSleeping() && getSleepingPos().isEmpty() && tickCount % 10 == 0) {
+            checkMobHead(level);   // реагирует только пока бодрствует и игрок в её поле зрения
         }
 
         if (isSleeping() || phase != Phase.NONE || inHouse()) {
@@ -471,11 +629,13 @@ public class BabushkaEntity extends PathfinderMob {
         if (homeBed != null) {
             output.store("HomeBed", BlockPos.CODEC, homeBed);
         }
+        output.store("FoodLevel", Codec.INT, foodLevel);
     }
 
     @Override
     protected void readAdditionalSaveData(ValueInput input) {
         super.readAdditionalSaveData(input);
         input.read("HomeBed", BlockPos.CODEC).ifPresent(this::setHome);
+        input.read("FoodLevel", Codec.INT).ifPresent(v -> foodLevel = v);
     }
 }

@@ -13,6 +13,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -26,7 +27,9 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Полицейский из отряда бабушки. Приказы (ходить/бегать) даёт PoliceSquad.
- * Если полицейского ударить — он достаёт автомат и стреляет в ударившего (урон выстрела 100, броня не ломается).
+ * У полицейского 20 здоровья, как у игрока; его можно убить. Если его ударить — он достаёт автомат и
+ * стреляет в ударившего залпами по 3 выстрела раз в 2 секунды (3 урона за выстрел, броня не ломается),
+ * но только пока видит игрока (в поле зрения и без препятствий).
  */
 public class PoliceEntity extends PathfinderMob {
 
@@ -35,11 +38,15 @@ public class PoliceEntity extends PathfinderMob {
      * Идут к бабушке пешком (множитель 0.77 ≈ 4.3, как у идущего игрока).
      */
     public static final double POLICE_SPEED = 0.28;
-    /** Урон одного выстрела из автомата. */
-    public static final float SHOT_DAMAGE = 100.0F;
-    /** Пауза между выстрелами, тиков. */
-    public static final int SHOT_INTERVAL = 8;
+    /** Урон одного выстрела из автомата (3 единицы = 1.5 сердечка). */
+    public static final float SHOT_DAMAGE = 3.0F;
+    /** Залп: 3 выстрела подряд (по одному каждые SHOT_GAP тиков), новый залп каждые 40 тиков = 2 секунды. */
+    public static final int VOLLEY_SHOTS = 3;
+    public static final int SHOT_GAP = 3;
+    public static final int VOLLEY_PERIOD = 40;
     public static final double SHOOT_RANGE = 48.0;
+    /** Поле зрения полицейского: cos(70°) -> стреляет только в секторе 140° перед собой. */
+    public static final double FOV_COS = 0.34;
 
     public enum Mode { IDLE, GATHER, SEARCH, CHASE, GUARD }
 
@@ -51,7 +58,9 @@ public class PoliceEntity extends PathfinderMob {
 
     /** Кто ударил полицейского (в него он стреляет). */
     private UUID gunTargetId;
-    private int shotCooldown;
+    private int volleyLeft;
+    private int volleyCooldown;
+    private int shotGap;
 
     public PoliceEntity(EntityType<? extends PoliceEntity> type, Level level) {
         super(type, level);
@@ -60,7 +69,6 @@ public class PoliceEntity extends PathfinderMob {
             nav.setCanFloat(true);
         }
         setPersistenceRequired();
-        setInvulnerable(true);
     }
 
     /** Машина переопределяет. */
@@ -88,17 +96,14 @@ public class PoliceEntity extends PathfinderMob {
         return false;
     }
 
-    /** Удар игрока: полицейский бессмертен, но достаёт автомат и начинает стрелять в ударившего. */
+    /** Удар игрока: полицейский получает урон как обычный моб, достаёт автомат и берёт ударившего на прицел. */
     @Override
     public boolean hurtServer(ServerLevel level, DamageSource source, float amount) {
-        if (isCar()) {
-            return super.hurtServer(level, source, amount);
-        }
-        if (source.getEntity() instanceof ServerPlayer player && player.isAlive() && !player.isSpectator()) {
+        if (!isCar() && source.getEntity() instanceof ServerPlayer player && player.isAlive() && !player.isSpectator()) {
             gunTargetId = player.getUUID();
             setAggressive(true); // флаг синхронизируется с клиентом: модель показывает автомат
         }
-        return false;
+        return super.hurtServer(level, source, amount);
     }
 
     @Override
@@ -145,7 +150,16 @@ public class PoliceEntity extends PathfinderMob {
         target.hurtServer(level, ModDamage.of(level, ModDamage.POLICE_SHOT, this), SHOT_DAMAGE);
     }
 
-    /** Достаёт автомат и стреляет в того, кто ударил. */
+    /** Видит ли полицейский цель: в секторе 140° перед ним и без препятствий. */
+    private boolean canSee(LivingEntity target) {
+        Vec3 to = target.getEyePosition().subtract(getEyePosition());
+        if (to.lengthSqr() < 1.0E-4) {
+            return true;
+        }
+        return getViewVector(1.0F).dot(to.normalize()) >= FOV_COS && hasLineOfSight(target);
+    }
+
+    /** Достаёт автомат и стреляет в того, кто ударил: залп из 3 выстрелов каждые 2 секунды, только если видит игрока. */
     private class ShootGoal extends Goal {
         ShootGoal() {
             setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
@@ -177,7 +191,8 @@ public class PoliceEntity extends PathfinderMob {
         @Override
         public void start() {
             setAggressive(true);
-            shotCooldown = 8;
+            volleyLeft = 0;
+            volleyCooldown = 10;   // небольшая реакция перед первым залпом
         }
 
         @Override
@@ -192,9 +207,11 @@ public class PoliceEntity extends PathfinderMob {
             if (target == null || !(level() instanceof ServerLevel level)) {
                 return;
             }
-            getLookControl().setLookAt(target, 60.0F, 60.0F);
-            boolean sees = hasLineOfSight(target);
             double dist = distanceToSqr(target);
+            if (dist < SHOOT_RANGE * SHOOT_RANGE) {
+                getLookControl().setLookAt(target, 60.0F, 60.0F);   // поворачивается к тому, кто его ударил
+            }
+            boolean sees = canSee(target);
             if (!sees || dist > SHOOT_RANGE * SHOOT_RANGE) {
                 if (tickCount % 5 == 0 || getNavigation().isDone()) {
                     getNavigation().moveTo(target, 1.0);   // подходит, пока не увидит
@@ -202,11 +219,22 @@ public class PoliceEntity extends PathfinderMob {
             } else {
                 getNavigation().stop();
             }
-            if (shotCooldown > 0) {
-                shotCooldown--;
-            } else if (sees && dist <= SHOOT_RANGE * SHOOT_RANGE) {
-                fire(level, target);
-                shotCooldown = SHOT_INTERVAL;
+
+            if (volleyCooldown > 0) {
+                volleyCooldown--;
+            }
+            if (volleyLeft > 0) {
+                if (--shotGap <= 0) {
+                    if (sees && dist <= SHOOT_RANGE * SHOOT_RANGE) {
+                        fire(level, target);
+                    }
+                    volleyLeft--;
+                    shotGap = SHOT_GAP;
+                }
+            } else if (volleyCooldown <= 0 && sees && dist <= SHOOT_RANGE * SHOOT_RANGE) {
+                volleyLeft = VOLLEY_SHOTS;      // новый залп из 3 выстрелов
+                shotGap = 0;
+                volleyCooldown = VOLLEY_PERIOD; // следующий — через 2 секунды
             }
         }
     }
