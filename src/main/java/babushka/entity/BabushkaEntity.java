@@ -9,6 +9,8 @@ import java.util.Map;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -204,6 +206,13 @@ public class BabushkaEntity extends AgeableMob {
 
     // ---------------------------------------------------------------- размножение (как у жителей)
 
+    private static final Identifier VILLAGER_ID = Identifier.fromNamespaceAndPath("minecraft", "villager");
+
+    /** Обычный житель (определяем по идентификатору minecraft:villager). */
+    private static boolean isVillager(AgeableMob mob) {
+        return VILLAGER_ID.equals(BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()));
+    }
+
     private static int foodPoints(ItemStack stack) {
         if (stack.is(Items.BREAD)) {
             return 4;
@@ -257,7 +266,7 @@ public class BabushkaEntity extends AgeableMob {
             }
             List<AgeableMob> list = sl.getEntitiesOfClass(AgeableMob.class, getBoundingBox().inflate(16.0),
                 m -> m != BabushkaEntity.this && m.isAlive() && !m.isBaby()
-                    && (m.getType() == EntityType.VILLAGER || m instanceof BabushkaEntity) && m.canBreed());
+                    && (isVillager(m) || m instanceof BabushkaEntity) && m.canBreed());
             AgeableMob best = null;
             double bestD = Double.MAX_VALUE;
             for (AgeableMob m : list) {
